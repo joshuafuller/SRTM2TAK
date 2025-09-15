@@ -269,21 +269,21 @@ export class DownloadManager {
     const requestedConcurrency = this.options.concurrentDownloads ?? 3;
     const concurrency = Math.max(1, Math.min(10, requestedConcurrency));
 
-    const inFlight = new Set<Promise<T | null>>();
+    type WrappedResult = { promise: Promise<WrappedResult>; result: T | null };
+    const inFlight = new Set<Promise<WrappedResult>>();
     let index = 0;
 
     const launchNext = (): void => {
       if (index >= items.length) return;
       const item = items[index++];
-      const p = processor(item)
+      let promiseRef: Promise<WrappedResult>;
+      promiseRef = processor(item)
+        .then(result => ({ promise: promiseRef, result }))
         .catch((err) => {
           console.error(`Failed to process item ${item}:`, err);
-          return null;
-        })
-        .finally(() => {
-          inFlight.delete(p);
-        }) as Promise<T | null>;
-      inFlight.add(p);
+          return { promise: promiseRef!, result: null };
+        }) as Promise<WrappedResult>;
+      inFlight.add(promiseRef);
     };
 
     // Fill initial pool
@@ -296,7 +296,9 @@ export class DownloadManager {
       if (this.abortController?.signal.aborted) {
         throw new DOMException('Download cancelled', 'AbortError');
       }
-      const result = await Promise.race(inFlight);
+      const { promise, result } = await Promise.race(inFlight);
+      inFlight.delete(promise);
+
       // Keep pool full
       while (inFlight.size < concurrency && index < items.length) {
         launchNext();
