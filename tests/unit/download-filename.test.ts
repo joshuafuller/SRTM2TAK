@@ -18,7 +18,7 @@ function generateDownloadFilename(friendlyDescription: string | null | undefined
     filename = friendlyDescription
       .replace(/\(/g, '[')         // Replace ( with [
       .replace(/\)/g, ']')         // Replace ) with ]
-      .replace(/[^\w\s\[\]-]/g, '') // Remove special chars except spaces, brackets, and hyphens
+      .replace(/[^\w\s[\]-]/g, '') // Remove special chars except spaces, brackets, and hyphens
       .replace(/\s+/g, '_')        // Replace spaces with underscores
       .replace(/_+/g, '_')         // Remove duplicate underscores
       .toLowerCase();
@@ -55,7 +55,7 @@ function generateDownloadFilenameImproved(friendlyDescription: string | null | u
   filename = description
     .replace(/\(/g, '[')           // Replace ( with [
     .replace(/\)/g, ']')           // Replace ) with ]
-    .replace(/[^\w\s\[\]-]/g, '')  // Remove special chars except spaces, brackets, and hyphens
+    .replace(/[^\w\s[\]-]/g, '')  // Remove special chars except spaces, brackets, and hyphens
     .replace(/\s+/g, '_')          // Replace spaces with underscores
     .replace(/_+/g, '_')           // Remove duplicate underscores
     .replace(/^_|_$/g, '')         // Trim underscores from start/end
