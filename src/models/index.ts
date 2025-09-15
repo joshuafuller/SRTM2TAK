@@ -122,7 +122,6 @@ export interface DownloadProgress {
 export interface AppSettings {
   // Display
   theme: 'light' | 'dark' | 'auto';
-  mapProvider: 'osm' | 'mapbox' | 'google';
   mapStyle?: string;
   showTileGrid: boolean;
   showTileLabels: boolean;
@@ -155,7 +154,6 @@ export interface AppSettings {
   
   // Advanced
   enableOfflineMode: boolean;
-  enableAnalytics: boolean;
   debugMode: boolean;
   customS3Endpoint?: string;
 }
