@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const h = vi.hoisted(() => {
   return {
-    fetchMock: vi.fn<[], Promise<ArrayBuffer>>(),
+    fetchMock: vi.fn(() => Promise.resolve(new ArrayBuffer(0))),
     createZipMock: vi.fn(),
     storageFactory: () => ({
       init: vi.fn().mockResolvedValue(undefined),
