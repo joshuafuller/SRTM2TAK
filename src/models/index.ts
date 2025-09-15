@@ -114,6 +114,9 @@ export interface DownloadProgress {
   timeElapsed: number;           // Milliseconds elapsed
   timeRemaining: number;         // Estimated milliseconds remaining
   currentTile?: string;          // Currently downloading tile
+  tilesFromCache?: number;       // Number of tiles served from cache
+  tilesFromNetwork?: number;     // Number of tiles downloaded from network
+  averageTileSize?: number;      // Average tile size in bytes
 }
 
 /**

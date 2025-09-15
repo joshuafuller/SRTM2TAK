@@ -39,6 +39,10 @@ export class DownloadManager {
   private bytesDownloaded: number = 0;
   private totalEstimatedBytes: number = 0;
   private tileBytesLoaded: Map<string, number> = new Map();
+  private actualTotalBytes: number = 0;
+  private tilesFromCache: number = 0;
+  private tilesFromNetwork: number = 0;
+  private lastProgressUpdate: number = 0;
   
   constructor(private options: DownloadManagerOptions = {}) {
     this.fetcher = new TileFetcher({
@@ -113,7 +117,11 @@ export class DownloadManager {
     this.downloadStartTime = Date.now();
     this.bytesDownloaded = 0;
     this.tileBytesLoaded.clear();
-    // Estimate total compressed size for progress
+    this.actualTotalBytes = 0;
+    this.tilesFromCache = 0;
+    this.tilesFromNetwork = 0;
+    this.lastProgressUpdate = Date.now();
+    // Estimate total compressed size for progress (will be refined with actual data)
     this.totalEstimatedBytes = tileIds.length * 6.5 * 1024 * 1024;
     
     try {
@@ -177,23 +185,43 @@ export class DownloadManager {
       this.tileBytesLoaded.set(p.tileId, p.loaded);
     }
 
+    // Update actual total bytes if we have a real total from the network
+    if (p.total > 0 && !this.tileBytesLoaded.has(p.tileId + '_total')) {
+      this.tileBytesLoaded.set(p.tileId + '_total', p.total);
+      this.actualTotalBytes += p.total;
+    }
+
+    // Throttle progress updates to avoid overwhelming the UI (max 10 updates per second)
+    const now = Date.now();
+    if (now - this.lastProgressUpdate < 100) return;
+    this.lastProgressUpdate = now;
+
     // Emit streaming progress to UI if available
     if (this.options.onProgress) {
-      const now = Date.now();
       const elapsed = now - this.downloadStartTime;
       const speed = elapsed > 0 ? this.bytesDownloaded / (elapsed / 1000) : 0;
 
+      const totalTiles = this.currentSession ? this.currentSession.tiles.length : 0;
+      const completedTiles = this.currentSession ? (this.currentSession.completed.length + this.currentSession.skipped.length) : 0;
+
+      // Use actual total bytes if available, otherwise use refined estimate
+      const estimatedBytesPerTile = this.tilesFromNetwork > 0 ? this.bytesDownloaded / this.tilesFromNetwork : 6.5 * 1024 * 1024;
+      const refinedTotalBytes = this.actualTotalBytes > 0 ?
+        this.actualTotalBytes + (totalTiles - this.tilesFromNetwork) * estimatedBytesPerTile :
+        totalTiles * estimatedBytesPerTile;
+
       const progress: DownloadProgress = {
-        current: this.currentSession ? (this.currentSession.completed.length + this.currentSession.skipped.length) : 0,
-        total: this.currentSession ? this.currentSession.tiles.length : 0,
-        percent: this.currentSession && this.currentSession.tiles.length > 0
-          ? Math.min(99, Math.round(((this.currentSession.completed.length + this.currentSession.skipped.length) / this.currentSession.tiles.length) * 100))
-          : 0,
+        current: completedTiles,
+        total: totalTiles,
+        percent: totalTiles > 0 ? Math.min(99, Math.round((completedTiles / totalTiles) * 100)) : 0,
         bytesDownloaded: this.bytesDownloaded,
-        bytesTotal: this.totalEstimatedBytes,
+        bytesTotal: refinedTotalBytes,
         speed,
         timeElapsed: elapsed,
-        timeRemaining: speed > 0 ? Math.max(0, Math.round(((this.totalEstimatedBytes - this.bytesDownloaded) / speed) * 1000)) : 0,
+        timeRemaining: speed > 0 ? Math.max(0, Math.round(((refinedTotalBytes - this.bytesDownloaded) / speed) * 1000)) : 0,
+        tilesFromCache: this.tilesFromCache,
+        tilesFromNetwork: this.tilesFromNetwork,
+        averageTileSize: this.tilesFromNetwork > 0 ? Math.round(this.bytesDownloaded / this.tilesFromNetwork) : 0,
       };
       this.options.onProgress(progress);
     }
@@ -356,6 +384,7 @@ export class DownloadManager {
         if (entry && entry.data && entry.data.byteLength > 0) {
           data = entry.data;
           this.cacheStats.hits++;
+          this.tilesFromCache++;
         } else {
           this.cacheStats.misses++;
         }
@@ -371,6 +400,9 @@ export class DownloadManager {
       }
       this.options.onTileStart?.(tileId);
       data = await this.downloadTile(tileId);
+      if (data && data.byteLength > 0) {
+        this.tilesFromNetwork++;
+      }
       if (data && data.byteLength > 0 && this.options.useCache !== false && this.storage.isInitialized()) {
         try {
           await this.storage.store({
@@ -521,19 +553,35 @@ export class DownloadManager {
   private updateProgress(current: number, total: number): void {
     const now = Date.now();
     const elapsed = now - this.downloadStartTime;
-    const speed = elapsed > 0 ? this.bytesDownloaded / (elapsed / 1000) : 0;
-    
+
+    // Calculate effective speed based on actual downloads (not cache hits)
+    const effectiveBytesDownloaded = this.bytesDownloaded;
+    const effectiveSpeed = elapsed > 0 ? effectiveBytesDownloaded / (elapsed / 1000) : 0;
+
+    // Calculate more accurate total bytes estimate
+    const avgBytesPerTile = this.tilesFromNetwork > 0 ?
+      this.bytesDownloaded / this.tilesFromNetwork :
+      6.5 * 1024 * 1024;
+
+    // Account for cached tiles in total estimate
+    const remainingNetworkTiles = Math.max(0, total - current);
+    const estimatedRemainingBytes = remainingNetworkTiles * avgBytesPerTile;
+    const refinedTotalBytes = this.bytesDownloaded + estimatedRemainingBytes;
+
     const progress: DownloadProgress = {
       current,
       total,
       percent: Math.round((current / total) * 100),
       bytesDownloaded: this.bytesDownloaded,
-      bytesTotal: total * 6.5 * 1024 * 1024, // Estimate; refined by network progress
-      speed,
+      bytesTotal: refinedTotalBytes,
+      speed: effectiveSpeed,
       timeElapsed: elapsed,
-      timeRemaining: speed > 0 
-        ? ((total - current) * 6.5 * 1024 * 1024) / speed * 1000
+      timeRemaining: effectiveSpeed > 0 && estimatedRemainingBytes > 0
+        ? Math.max(0, Math.round((estimatedRemainingBytes / effectiveSpeed) * 1000))
         : 0,
+      tilesFromCache: this.tilesFromCache,
+      tilesFromNetwork: this.tilesFromNetwork,
+      averageTileSize: this.tilesFromNetwork > 0 ? Math.round(this.bytesDownloaded / this.tilesFromNetwork) : 0,
     };
     
     // Update session progress
@@ -553,16 +601,25 @@ export class DownloadManager {
    * Get download statistics
    */
   getStatistics(): Record<string, unknown> | null {
+    const baseStats = {
+      cache: this.cacheStats,
+      tilesFromCache: this.tilesFromCache,
+      tilesFromNetwork: this.tilesFromNetwork,
+      bytesDownloaded: this.bytesDownloaded,
+      averageTileSize: this.tilesFromNetwork > 0 ?
+        Math.round(this.bytesDownloaded / this.tilesFromNetwork) : 0,
+      actualVsEstimated: this.actualTotalBytes > 0 ?
+        Math.round((this.actualTotalBytes / this.totalEstimatedBytes) * 100) : 100,
+    };
+
     if (!this.currentSession) {
-      return {
-        cache: this.cacheStats
-      };
+      return baseStats;
     }
 
     const stats = DownloadManifest.getStatistics(this.currentSession);
     return {
       ...stats,
-      cache: this.cacheStats
+      ...baseStats
     };
   }
   
