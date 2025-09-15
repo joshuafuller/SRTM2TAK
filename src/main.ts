@@ -1614,21 +1614,31 @@ async function startDownload(): Promise<void> {
 
     if (match) {
       // For simple counts, prepend "srtm_" to make it clear what kind of tiles
-      filename = `srtm_${match[1]}_tiles`;
+      // Validate the number is reasonable
+      const tileCount = parseInt(match[1], 10);
+      if (tileCount > 0 && tileCount <= 10000) {
+        filename = `srtm_${tileCount}_tiles`;
+      }
     } else {
-      // For descriptions with area names and tile counts
-      // Clean the description for use as filename
+      // Security: Use strict whitelist approach for filename sanitization
+      // Only allow alphanumeric, spaces, brackets, hyphens, and underscores
       filename = description
-        .replace(/\(/g, '[')           // Replace ( with [
-        .replace(/\)/g, ']')           // Replace ) with ]
-        .replace(/[^\w\s\[\]-]/g, '')  // Remove special chars except spaces, brackets, and hyphens
-        .replace(/\s+/g, '_')          // Replace spaces with underscores
-        .replace(/_+/g, '_')           // Remove duplicate underscores
-        .replace(/^_|_$/g, '')         // Trim underscores from start/end
+        .substring(0, 200)  // Limit length to prevent overflow
+        .replace(/\(/g, '[')
+        .replace(/\)/g, ']')
+        .replace(/[^a-zA-Z0-9\s\[\]_-]/g, '')  // Strict whitelist
+        .replace(/\s+/g, '_')
+        .replace(/_+/g, '_')
+        .replace(/^[_-]+|[_-]+$/g, '')  // Trim special chars from start/end
         .toLowerCase();
 
-      // Ensure we don't return empty or just numbers
-      if (!filename || /^\d+$/.test(filename)) {
+      // Security: Additional validation
+      if (!filename || filename.length === 0 || /^[\d_-]+$/.test(filename)) {
+        filename = 'srtm_tiles';
+      }
+
+      // Security: Prevent directory traversal patterns
+      if (filename.includes('..') || filename.includes('/') || filename.includes('\\')) {
         filename = 'srtm_tiles';
       }
     }

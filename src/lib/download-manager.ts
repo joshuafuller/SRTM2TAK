@@ -64,14 +64,25 @@ export class DownloadManager {
     tileIds: string[],
     selection?: AreaSelection
   ): Promise<Blob> {
-    
+
+    // Input validation
+    if (!tileIds || tileIds.length === 0) {
+      throw new Error('No tiles to download');
+    }
+
+    // Security: Limit maximum tiles to prevent DoS
+    const MAX_TILES = 10000;
+    if (tileIds.length > MAX_TILES) {
+      throw new Error(`Too many tiles requested (${tileIds.length}). Maximum allowed: ${MAX_TILES}`);
+    }
+
     // Ensure storage is initialized
     try {
       await this.initStorage();
     } catch (error) {
       console.warn('Storage init failed, continuing without cache:', error);
     }
-    
+
     // Check memory before starting
     const memStatus = this.monitor.getMemoryStatus();
     if (memStatus.level === 'critical') {
@@ -246,7 +257,9 @@ export class DownloadManager {
   ): AsyncGenerator<{ id: string; data: ArrayBuffer }> {
     const total = tileIds.length;
     let completed = 0;
-    const concurrency = Math.max(1, this.options.concurrentDownloads ?? 3);
+    // Validate and clamp concurrency to safe range
+    const requestedConcurrency = this.options.concurrentDownloads ?? 3;
+    const concurrency = Math.max(1, Math.min(10, requestedConcurrency));
 
     const inFlight = new Set<Promise<{ id: string; data: ArrayBuffer } | null>>();
     let index = 0;
@@ -295,7 +308,9 @@ export class DownloadManager {
   ): AsyncGenerator<{ id: string; data: ArrayBuffer }> {
     const total = tileIds.length;
     let completed = 0;
-    const concurrency = Math.max(1, this.options.concurrentDownloads ?? 3);
+    // Validate and clamp concurrency to safe range
+    const requestedConcurrency = this.options.concurrentDownloads ?? 3;
+    const concurrency = Math.max(1, Math.min(10, requestedConcurrency));
 
     type Result = { id: string; data: ArrayBuffer } | null;
     type WrappedResult = { promise: Promise<WrappedResult>, result: Result };
@@ -305,15 +320,20 @@ export class DownloadManager {
     const launchNext = (): void => {
       if (index >= tileIds.length) return;
       const tileId = tileIds[index++];
+
+      // Create self-referencing promise to avoid race condition
       let promiseRef: Promise<WrappedResult>;
-      const p = this.processUnifiedTile(tileId)
-        .then(result => ({ promise: promiseRef, result }))
-        .catch((err) => {
+      promiseRef = (async () => {
+        try {
+          const result = await this.processUnifiedTile(tileId);
+          return { promise: promiseRef, result };
+        } catch (err) {
           console.error(`Failed to process tile ${tileId}:`, err);
           return { promise: promiseRef, result: null };
-        }) as Promise<WrappedResult>;
-      promiseRef = p;
-      inFlight.add(p);
+        }
+      })();
+
+      inFlight.add(promiseRef);
     };
 
     while (inFlight.size < concurrency && index < tileIds.length) {
