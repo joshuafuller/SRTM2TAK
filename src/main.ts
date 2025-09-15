@@ -1359,6 +1359,7 @@ function setupControls(): void {
   // Settings controls
   const showGridCheckbox = document.getElementById('show-grid') as HTMLInputElement;
   const showLabelsCheckbox = document.getElementById('show-labels') as HTMLInputElement;
+  const concurrentDownloadsSelect = document.getElementById('concurrent-downloads') as HTMLSelectElement;
   const useCacheCheckbox = document.getElementById('use-cache') as HTMLInputElement;
   const clearCacheButton = document.getElementById('clear-cache') as HTMLButtonElement;
 
@@ -1425,6 +1426,16 @@ function setupControls(): void {
       if (state.settings.showGrid) {
         drawTileGrid();
       }
+    });
+  }
+
+  if (concurrentDownloadsSelect) {
+    // Initialize from settings
+    concurrentDownloadsSelect.value = state.settings.concurrentDownloads.toString();
+    concurrentDownloadsSelect.addEventListener('change', () => {
+      state.settings.concurrentDownloads = parseInt(concurrentDownloadsSelect.value, 10);
+      saveSettings();
+      console.log('Updated concurrent downloads to:', state.settings.concurrentDownloads);
     });
   }
 
@@ -2009,6 +2020,8 @@ function initialize(): void {
   if (showGridCheckbox) showGridCheckbox.checked = state.settings.showGrid;
   const showLabelsCheckbox = document.getElementById('show-labels') as HTMLInputElement | null;
   if (showLabelsCheckbox) showLabelsCheckbox.checked = state.settings.showLabels;
+  const concurrentDownloadsSelect = document.getElementById('concurrent-downloads') as HTMLSelectElement | null;
+  if (concurrentDownloadsSelect) concurrentDownloadsSelect.value = state.settings.concurrentDownloads.toString();
   const useCacheCheckbox = document.getElementById('use-cache') as HTMLInputElement | null;
   if (useCacheCheckbox) useCacheCheckbox.checked = state.settings.useCache;
 
