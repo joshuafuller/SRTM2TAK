@@ -276,13 +276,14 @@ export class DownloadManager {
     const launchNext = (): void => {
       if (index >= items.length) return;
       const item = items[index++];
-      let promiseRef: Promise<WrappedResult>;
+      // Create self-referencing promise to track completion
+      let promiseRef: Promise<WrappedResult> = null as any;
       promiseRef = processor(item)
         .then(result => ({ promise: promiseRef, result }))
         .catch((err) => {
           console.error(`Failed to process item ${item}:`, err);
-          return { promise: promiseRef!, result: null };
-        }) as Promise<WrappedResult>;
+          return { promise: promiseRef, result: null };
+        });
       inFlight.add(promiseRef);
     };
 
