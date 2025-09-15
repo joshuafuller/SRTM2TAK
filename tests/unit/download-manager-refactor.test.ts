@@ -376,7 +376,7 @@ describe('DownloadManager - Issue #6 Cache Error Logging', () => {
     await vi.runAllTimersAsync();
     await downloadPromise;
 
-    const stats = mgr.getStatistics();
+    const stats = mgr.getStatistics() as any;
 
     expect(stats).toBeDefined();
     expect(stats?.cache).toBeDefined();
@@ -385,11 +385,11 @@ describe('DownloadManager - Issue #6 Cache Error Logging', () => {
     // - misses: 2 (network_tile_1, writeerror_tile_1)
     // - errors: 1 (error_tile_1 read error - not counted as miss)
     // - writeErrors: 1 (writeerror_tile_1 write error)
-    expect(stats?.cache.hits).toBe(2);      // cached_tile_1, cached_tile_2
-    expect(stats?.cache.errors).toBe(1);    // error_tile_1
-    expect(stats?.cache.writeErrors).toBe(1); // writeerror_tile_1
+    expect(stats?.cache?.hits).toBe(2);      // cached_tile_1, cached_tile_2
+    expect(stats?.cache?.errors).toBe(1);    // error_tile_1
+    expect(stats?.cache?.writeErrors).toBe(1); // writeerror_tile_1
     // misses should be at least 2 (network_tile_1, writeerror_tile_1)
-    expect(stats?.cache.misses).toBeGreaterThanOrEqual(2);
+    expect(stats?.cache?.misses).toBeGreaterThanOrEqual(2);
   });
 
   it('continues processing after cache errors', async () => {
@@ -456,7 +456,7 @@ describe('DownloadManager - Issue #6 Cache Error Logging', () => {
     });
 
     // Get stats without any download
-    const stats = mgr.getStatistics();
+    const stats = mgr.getStatistics() as any;
 
     expect(stats).toBeDefined();
     expect(stats?.cache).toBeDefined();

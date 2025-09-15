@@ -315,7 +315,7 @@ describe('Integration: Issues #5 and #6 Combined', () => {
     expect(errorLogs.length).toBeGreaterThan(0);
 
     // Stats should include cache metrics
-    const stats = mgr.getStatistics();
+    const stats = mgr.getStatistics() as any;
     expect(stats?.cache).toBeDefined();
 
     consoleDebugSpy.mockRestore();
