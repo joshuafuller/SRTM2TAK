@@ -344,13 +344,17 @@ export class DownloadManager {
     if (mem.level === 'warning') await new Promise((r) => setTimeout(r, 300));
 
     let data: ArrayBuffer | null = null;
+    let cacheAttempted = false;
     // Try cache first if enabled
     if (this.options.useCache !== false && this.storage.isInitialized()) {
+      cacheAttempted = true;
       try {
         const entry = await this.storage.get(tileId);
         if (entry && entry.data && entry.data.byteLength > 0) {
           data = entry.data;
           this.cacheStats.hits++;
+        } else {
+          this.cacheStats.misses++;
         }
       } catch (error) {
         console.debug(`Cache read error for tile ${tileId}:`, error);
@@ -359,7 +363,9 @@ export class DownloadManager {
       }
     }
     if (!data) {
-      this.cacheStats.misses++;
+      if (!cacheAttempted) {
+        this.cacheStats.misses++;
+      }
       this.options.onTileStart?.(tileId);
       data = await this.downloadTile(tileId);
       if (data && data.byteLength > 0 && this.options.useCache !== false && this.storage.isInitialized()) {
