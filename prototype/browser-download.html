@@ -1,0 +1,465 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>SRTM2TAK Browser Prototype - T010</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+        }
+        .container {
+            background: white;
+            border-radius: 12px;
+            padding: 30px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+        }
+        h1 {
+            color: #333;
+            margin-bottom: 10px;
+        }
+        .subtitle {
+            color: #666;
+            margin-bottom: 30px;
+        }
+        .status-card {
+            background: #f8f9fa;
+            border-left: 4px solid #667eea;
+            padding: 15px;
+            margin: 20px 0;
+            border-radius: 4px;
+        }
+        .button-group {
+            display: flex;
+            gap: 10px;
+            margin: 20px 0;
+            flex-wrap: wrap;
+        }
+        button {
+            background: #667eea;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 6px;
+            font-size: 16px;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        button:hover {
+            background: #5a67d8;
+            transform: translateY(-2px);
+        }
+        button:disabled {
+            background: #cbd5e0;
+            cursor: not-allowed;
+            transform: none;
+        }
+        .success {
+            background: #48bb78;
+        }
+        .success:hover {
+            background: #38a169;
+        }
+        .progress-container {
+            background: #f7fafc;
+            border-radius: 8px;
+            padding: 20px;
+            margin: 20px 0;
+            display: none;
+        }
+        .progress-bar {
+            background: #e2e8f0;
+            height: 30px;
+            border-radius: 15px;
+            overflow: hidden;
+            position: relative;
+        }
+        .progress-fill {
+            background: linear-gradient(90deg, #667eea, #764ba2);
+            height: 100%;
+            width: 0%;
+            transition: width 0.3s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-weight: bold;
+        }
+        .log {
+            background: #1a202c;
+            color: #68d391;
+            padding: 15px;
+            border-radius: 8px;
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+            max-height: 300px;
+            overflow-y: auto;
+            margin: 20px 0;
+        }
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 15px;
+            margin: 20px 0;
+        }
+        .stat-card {
+            background: #f7fafc;
+            padding: 15px;
+            border-radius: 8px;
+            text-align: center;
+        }
+        .stat-value {
+            font-size: 24px;
+            font-weight: bold;
+            color: #667eea;
+        }
+        .stat-label {
+            font-size: 12px;
+            color: #718096;
+            margin-top: 5px;
+        }
+        .error {
+            background: #feb2b2;
+            color: #742a2a;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 20px 0;
+        }
+        a.download-link {
+            display: inline-block;
+            background: #48bb78;
+            color: white;
+            padding: 12px 24px;
+            border-radius: 6px;
+            text-decoration: none;
+            margin: 10px 0;
+            transition: all 0.3s;
+        }
+        a.download-link:hover {
+            background: #38a169;
+            transform: translateY(-2px);
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🌍 SRTM2TAK Browser Prototype</h1>
+        <p class="subtitle">Download and process SRTM elevation data directly in your browser</p>
+        
+        <div class="status-card">
+            <strong>Target Tile:</strong> N36W112 (Grand Canyon, Arizona) 🏜️<br>
+            <strong>Coordinates:</strong> 36°N to 37°N, 112°W to 111°W<br>
+            <strong>Landmarks:</strong> South Rim, Colorado River, Bright Angel Trail<br>
+            <strong>Elevation Range:</strong> 700m to 2800m (2100m variation!)<br>
+            <strong>Expected Size:</strong> ~9MB compressed, 25MB uncompressed
+        </div>
+
+        <div class="button-group">
+            <button id="downloadBtn" onclick="startDownload()">
+                📥 Download Tile from S3
+            </button>
+            <button id="processBtn" onclick="processDownloadedTile()" disabled>
+                ⚙️ Process Downloaded Tile
+            </button>
+            <button id="createZipBtn" onclick="createZipPackage()" disabled>
+                📦 Create ZIP Package
+            </button>
+            <button id="clearBtn" onclick="clearStorage()">
+                🗑️ Clear Storage
+            </button>
+        </div>
+
+        <div class="progress-container" id="progressContainer">
+            <h3>Download Progress</h3>
+            <div class="progress-bar">
+                <div class="progress-fill" id="progressFill">0%</div>
+            </div>
+            <div style="margin-top: 10px; color: #4a5568;">
+                <span id="progressText">Starting download...</span>
+            </div>
+        </div>
+
+        <div class="stats">
+            <div class="stat-card">
+                <div class="stat-value" id="downloadSpeed">0</div>
+                <div class="stat-label">MB/s</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="memoryUsage">0</div>
+                <div class="stat-label">MB Memory</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="storageUsed">0</div>
+                <div class="stat-label">MB Stored</div>
+            </div>
+        </div>
+
+        <div class="log" id="log">
+            Browser prototype ready. Click "Download Tile from S3" to begin...
+        </div>
+
+        <div id="downloadSection" style="display: none;">
+            <h3>📦 Downloaded Files</h3>
+            <div id="downloadLinks"></div>
+        </div>
+    </div>
+
+    <!-- Load pako for decompression -->
+    <script src="https://unpkg.com/pako@2.1.0/dist/pako.min.js"></script>
+    
+    <script>
+        let downloadedData = null;
+        let decompressedData = null;
+        let startTime = null;
+        
+        function log(message, isError = false) {
+            const logEl = document.getElementById('log');
+            const time = new Date().toLocaleTimeString();
+            const color = isError ? '#fc8181' : '#68d391';
+            logEl.innerHTML += `<div style="color: ${color}">[${time}] ${message}</div>`;
+            logEl.scrollTop = logEl.scrollHeight;
+        }
+        
+        function updateMemoryUsage() {
+            if (performance.memory) {
+                const mb = (performance.memory.usedJSHeapSize / 1024 / 1024).toFixed(1);
+                document.getElementById('memoryUsage').textContent = mb;
+            }
+        }
+        
+        async function startDownload() {
+            const btn = document.getElementById('downloadBtn');
+            btn.disabled = true;
+            document.getElementById('progressContainer').style.display = 'block';
+            
+            const url = 'https://s3.amazonaws.com/elevation-tiles-prod/skadi/N36/N36W112.hgt.gz';
+            
+            try {
+                log('🌐 Connecting to AWS S3...');
+                startTime = performance.now();
+                
+                const response = await fetch(url);
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                
+                const contentLength = +response.headers.get('Content-Length');
+                log(`📊 File size: ${(contentLength / 1024 / 1024).toFixed(2)} MB`);
+                
+                // Read the response with progress
+                const reader = response.body.getReader();
+                const chunks = [];
+                let receivedLength = 0;
+                
+                while(true) {
+                    const {done, value} = await reader.read();
+                    
+                    if (done) break;
+                    
+                    chunks.push(value);
+                    receivedLength += value.length;
+                    
+                    // Update progress
+                    const progress = (receivedLength / contentLength * 100).toFixed(1);
+                    document.getElementById('progressFill').style.width = progress + '%';
+                    document.getElementById('progressFill').textContent = progress + '%';
+                    
+                    const elapsed = (performance.now() - startTime) / 1000;
+                    const speed = (receivedLength / 1024 / 1024 / elapsed).toFixed(2);
+                    document.getElementById('downloadSpeed').textContent = speed;
+                    document.getElementById('progressText').textContent = 
+                        `Downloaded ${(receivedLength / 1024 / 1024).toFixed(2)} MB of ${(contentLength / 1024 / 1024).toFixed(2)} MB`;
+                    
+                    updateMemoryUsage();
+                }
+                
+                // Combine chunks into single array
+                log('✅ Download complete, combining chunks...');
+                const chunksAll = new Uint8Array(receivedLength);
+                let position = 0;
+                for(let chunk of chunks) {
+                    chunksAll.set(chunk, position);
+                    position += chunk.length;
+                }
+                
+                downloadedData = chunksAll;
+                
+                const elapsed = ((performance.now() - startTime) / 1000).toFixed(2);
+                log(`✅ Downloaded ${(receivedLength / 1024 / 1024).toFixed(2)} MB in ${elapsed}s`);
+                
+                // Store in IndexedDB
+                await storeInIndexedDB('compressed', downloadedData);
+                
+                // Enable next step
+                document.getElementById('processBtn').disabled = false;
+                btn.textContent = '✅ Downloaded';
+                btn.className = 'success';
+                
+            } catch (error) {
+                log(`❌ Download failed: ${error.message}`, true);
+                btn.disabled = false;
+            }
+        }
+        
+        async function processDownloadedTile() {
+            if (!downloadedData) {
+                log('❌ No data to process. Download first!', true);
+                return;
+            }
+            
+            const btn = document.getElementById('processBtn');
+            btn.disabled = true;
+            
+            try {
+                log('🔄 Decompressing SRTM data...');
+                
+                // Decompress using pako
+                const startDecompress = performance.now();
+                decompressedData = pako.inflate(downloadedData);
+                const elapsed = ((performance.now() - startDecompress) / 1000).toFixed(2);
+                
+                log(`✅ Decompressed to ${(decompressedData.length / 1024 / 1024).toFixed(2)} MB in ${elapsed}s`);
+                
+                // Verify size
+                if (decompressedData.length === 25934402) {
+                    log('✅ File size matches SRTM1 format (3601x3601 pixels)');
+                } else {
+                    log(`⚠️ Unexpected size: ${decompressedData.length} bytes`, true);
+                }
+                
+                // Store decompressed data
+                await storeInIndexedDB('decompressed', decompressedData);
+                
+                // Create download link for .hgt file
+                const blob = new Blob([decompressedData], { type: 'application/octet-stream' });
+                const url = URL.createObjectURL(blob);
+                
+                const linkContainer = document.getElementById('downloadLinks');
+                linkContainer.innerHTML = '';
+                
+                const link = document.createElement('a');
+                link.href = url;
+                link.download = 'N36W112.hgt';
+                link.className = 'download-link';
+                link.textContent = '💾 Download N36W112.hgt - Grand Canyon (25MB)';
+                linkContainer.appendChild(link);
+                
+                document.getElementById('downloadSection').style.display = 'block';
+                
+                // Enable ZIP creation
+                document.getElementById('createZipBtn').disabled = false;
+                btn.textContent = '✅ Processed';
+                btn.className = 'success';
+                
+                updateMemoryUsage();
+                
+            } catch (error) {
+                log(`❌ Processing failed: ${error.message}`, true);
+                btn.disabled = false;
+            }
+        }
+        
+        async function createZipPackage() {
+            // Note: Proper ZIP creation would use @zip.js/zip.js
+            // For this prototype, we'll just offer the decompressed file
+            
+            log('📦 In the full app, this would create a proper ZIP package');
+            log('📋 For now, use the download link above to get the .hgt file');
+            log('✅ Copy the .hgt file to /ATAK/SRTM/ on your Android device');
+            
+            document.getElementById('createZipBtn').textContent = '✅ Ready for ATAK';
+            document.getElementById('createZipBtn').className = 'success';
+        }
+        
+        // IndexedDB storage functions
+        async function storeInIndexedDB(key, data) {
+            return new Promise((resolve, reject) => {
+                const request = indexedDB.open('SRTM2TAK_Prototype', 1);
+                
+                request.onupgradeneeded = (event) => {
+                    const db = event.target.result;
+                    if (!db.objectStoreNames.contains('tiles')) {
+                        db.createObjectStore('tiles');
+                    }
+                };
+                
+                request.onsuccess = (event) => {
+                    const db = event.target.result;
+                    const transaction = db.transaction(['tiles'], 'readwrite');
+                    const store = transaction.objectStore('tiles');
+                    
+                    store.put(data, key);
+                    
+                    transaction.oncomplete = () => {
+                        log(`💾 Stored ${key} in IndexedDB`);
+                        updateStorageUsage();
+                        resolve();
+                    };
+                    
+                    transaction.onerror = () => {
+                        reject(transaction.error);
+                    };
+                };
+                
+                request.onerror = () => {
+                    reject(request.error);
+                };
+            });
+        }
+        
+        async function updateStorageUsage() {
+            if (navigator.storage && navigator.storage.estimate) {
+                const estimate = await navigator.storage.estimate();
+                const mb = (estimate.usage / 1024 / 1024).toFixed(1);
+                document.getElementById('storageUsed').textContent = mb;
+            }
+        }
+        
+        async function clearStorage() {
+            try {
+                await indexedDB.deleteDatabase('SRTM2TAK_Prototype');
+                downloadedData = null;
+                decompressedData = null;
+                
+                // Reset UI
+                document.getElementById('downloadBtn').disabled = false;
+                document.getElementById('downloadBtn').textContent = '📥 Download Tile from S3';
+                document.getElementById('downloadBtn').className = '';
+                
+                document.getElementById('processBtn').disabled = true;
+                document.getElementById('processBtn').textContent = '⚙️ Process Downloaded Tile';
+                document.getElementById('processBtn').className = '';
+                
+                document.getElementById('createZipBtn').disabled = true;
+                document.getElementById('createZipBtn').textContent = '📦 Create ZIP Package';
+                document.getElementById('createZipBtn').className = '';
+                
+                document.getElementById('downloadSection').style.display = 'none';
+                document.getElementById('progressContainer').style.display = 'none';
+                
+                log('🗑️ Storage cleared');
+                updateStorageUsage();
+                updateMemoryUsage();
+            } catch (error) {
+                log(`❌ Failed to clear storage: ${error.message}`, true);
+            }
+        }
+        
+        // Initialize
+        window.addEventListener('load', () => {
+            updateStorageUsage();
+            updateMemoryUsage();
+            
+            // Check for memory API
+            if (!performance.memory) {
+                log('ℹ️ Memory tracking not available. Use Chrome with --enable-precise-memory-info flag for detailed metrics.');
+            }
+        });
+    </script>
+</body>
+</html>

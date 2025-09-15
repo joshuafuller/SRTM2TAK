@@ -1,0 +1,13 @@
+{
+    "tile": "N34W081",
+    "source": "https://s3.amazonaws.com/elevation-tiles-prod/skadi/N34/N34W081.hgt.gz",
+    "compressedSize": 6826524,
+    "uncompressedSize": 25934402,
+    "expectedSize": 25934402,
+    "format": "SRTM1",
+    "resolution": "1 arc-second",
+    "dimensions": "3601x3601",
+    "dataType": "16-bit signed integer",
+    "byteOrder": "big-endian",
+    "downloadDate": "2025-09-12T06:15:54Z"
+}

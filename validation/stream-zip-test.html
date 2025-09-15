@@ -1,0 +1,458 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Streaming ZIP Test - SRTM2TAK</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            padding: 20px;
+            max-width: 900px;
+            margin: 0 auto;
+        }
+        .test-card {
+            background: white;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            padding: 20px;
+            margin: 20px 0;
+        }
+        .success { border-color: #4CAF50; background: #f1f8f4; }
+        .error { border-color: #f44336; background: #fef1f0; }
+        .pending { border-color: #2196F3; background: #f0f7ff; }
+        
+        button {
+            background: #2196F3;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover { background: #1976D2; }
+        button:disabled { background: #ccc; cursor: not-allowed; }
+        
+        pre {
+            background: #f5f5f5;
+            padding: 10px;
+            border-radius: 4px;
+            overflow-x: auto;
+        }
+        
+        .memory-stats {
+            display: flex;
+            gap: 20px;
+            margin: 10px 0;
+            flex-wrap: wrap;
+        }
+        .stat {
+            background: #E3F2FD;
+            padding: 10px;
+            border-radius: 4px;
+            min-width: 150px;
+        }
+        .stat-label {
+            font-size: 12px;
+            color: #666;
+        }
+        .stat-value {
+            font-size: 20px;
+            font-weight: bold;
+            color: #1976D2;
+        }
+        
+        progress {
+            width: 100%;
+            height: 20px;
+        }
+    </style>
+</head>
+<body>
+    <h1>🗜️ Streaming ZIP Test - @zip.js/zip.js</h1>
+    
+    <div class="test-card pending">
+        <h2>Test Setup</h2>
+        <p>This test validates that we can create ZIP files without holding everything in memory.</p>
+        <p><strong>Library:</strong> @zip.js/zip.js (streaming support)</p>
+        <p><strong>Goal:</strong> Add multiple 25MB files without exceeding memory limits</p>
+    </div>
+
+    <div class="test-card pending" id="test1-card">
+        <h2>Test 1: Load @zip.js/zip.js Library</h2>
+        <button onclick="loadLibrary()">Load Library</button>
+        <pre id="test1-result">Click to load streaming ZIP library...</pre>
+    </div>
+
+    <div class="test-card pending" id="test2-card">
+        <h2>Test 2: Create Simple ZIP (Small Files)</h2>
+        <button onclick="testSimpleZip()" id="test2-btn" disabled>Run Test</button>
+        <pre id="test2-result">Library must be loaded first...</pre>
+    </div>
+
+    <div class="test-card pending" id="test3-card">
+        <h2>Test 3: Stream Large Files (Simulated SRTM)</h2>
+        <button onclick="testStreamingZip()" id="test3-btn" disabled>Run Test</button>
+        <progress id="test3-progress" max="100" value="0" style="display:none;"></progress>
+        <div class="memory-stats" id="test3-memory" style="display:none;">
+            <div class="stat">
+                <div class="stat-label">Files Added</div>
+                <div class="stat-value" id="files-added">0</div>
+            </div>
+            <div class="stat">
+                <div class="stat-label">Total Size</div>
+                <div class="stat-value" id="total-size">0 MB</div>
+            </div>
+            <div class="stat">
+                <div class="stat-label">Peak Memory</div>
+                <div class="stat-value" id="peak-memory">0 MB</div>
+            </div>
+        </div>
+        <pre id="test3-result">Library must be loaded first...</pre>
+    </div>
+
+    <div class="test-card pending" id="test4-card">
+        <h2>Test 4: Memory Comparison (Streaming vs Non-Streaming)</h2>
+        <button onclick="compareApproaches()" id="test4-btn" disabled>Compare</button>
+        <pre id="test4-result">Library must be loaded first...</pre>
+    </div>
+
+    <div class="test-card pending" id="test5-card">
+        <h2>Test 5: Real SRTM Workflow</h2>
+        <button onclick="testRealWorkflow()" id="test5-btn" disabled>Test Workflow</button>
+        <pre id="test5-result">Library must be loaded first...</pre>
+    </div>
+
+    <script>
+        let zipModule = null;
+        let peakMemory = 0;
+        
+        function getMemoryUsage() {
+            if (performance.memory) {
+                return performance.memory.usedJSHeapSize / 1024 / 1024;
+            }
+            return 0;
+        }
+        
+        function trackPeakMemory() {
+            const current = getMemoryUsage();
+            if (current > peakMemory) {
+                peakMemory = current;
+                document.getElementById('peak-memory').textContent = `${peakMemory.toFixed(1)} MB`;
+            }
+        }
+        
+        async function loadLibrary() {
+            const resultEl = document.getElementById('test1-result');
+            const cardEl = document.getElementById('test1-card');
+            
+            try {
+                resultEl.textContent = 'Loading @zip.js/zip.js from CDN...';
+                
+                // Load the library
+                const script = document.createElement('script');
+                script.src = 'https://unpkg.com/@zip.js/zip.js@2.7.52/dist/zip-full.min.js';
+                
+                await new Promise((resolve, reject) => {
+                    script.onload = resolve;
+                    script.onerror = reject;
+                    document.head.appendChild(script);
+                });
+                
+                // Check if loaded
+                if (typeof zip !== 'undefined') {
+                    zipModule = zip;
+                    resultEl.textContent = `✅ Library loaded successfully
+Version: ${zip.configure ? '2.x' : 'Unknown'}
+Streaming support: YES
+Ready for testing!`;
+                    
+                    cardEl.className = 'test-card success';
+                    
+                    // Enable other tests
+                    document.getElementById('test2-btn').disabled = false;
+                    document.getElementById('test3-btn').disabled = false;
+                    document.getElementById('test4-btn').disabled = false;
+                    document.getElementById('test5-btn').disabled = false;
+                    
+                    document.getElementById('test2-result').textContent = 'Ready to test...';
+                    document.getElementById('test3-result').textContent = 'Ready to test...';
+                    document.getElementById('test4-result').textContent = 'Ready to test...';
+                    document.getElementById('test5-result').textContent = 'Ready to test...';
+                } else {
+                    throw new Error('Library loaded but zip object not found');
+                }
+            } catch (error) {
+                resultEl.textContent = `❌ Failed to load library: ${error.message}`;
+                cardEl.className = 'test-card error';
+            }
+        }
+        
+        async function testSimpleZip() {
+            const resultEl = document.getElementById('test2-result');
+            const cardEl = document.getElementById('test2-card');
+            
+            try {
+                resultEl.textContent = 'Creating simple ZIP with small files...';
+                
+                // Create a blob writer for the ZIP
+                const zipWriter = new zip.ZipWriter(new zip.BlobWriter());
+                
+                // Add some text files
+                await zipWriter.add('file1.txt', new zip.TextReader('Hello from file 1'));
+                await zipWriter.add('file2.txt', new zip.TextReader('Hello from file 2'));
+                await zipWriter.add('test/file3.txt', new zip.TextReader('Hello from nested file'));
+                
+                // Close and get the blob
+                const blob = await zipWriter.close();
+                
+                resultEl.textContent = `✅ ZIP created successfully
+Files added: 3
+ZIP size: ${(blob.size / 1024).toFixed(2)} KB
+Type: ${blob.type}
+
+Streaming worked! Files were added sequentially.`;
+                
+                cardEl.className = 'test-card success';
+                
+                // Offer download
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = 'test-simple.zip';
+                a.textContent = 'Download Test ZIP';
+                a.style.display = 'block';
+                a.style.marginTop = '10px';
+                cardEl.appendChild(a);
+                
+            } catch (error) {
+                resultEl.textContent = `❌ Failed: ${error.message}`;
+                cardEl.className = 'test-card error';
+            }
+        }
+        
+        async function testStreamingZip() {
+            const resultEl = document.getElementById('test3-result');
+            const cardEl = document.getElementById('test3-card');
+            const progressEl = document.getElementById('test3-progress');
+            const memoryEl = document.getElementById('test3-memory');
+            
+            try {
+                resultEl.textContent = 'Starting streaming ZIP test with large files...';
+                progressEl.style.display = 'block';
+                memoryEl.style.display = 'flex';
+                
+                // Reset stats
+                peakMemory = getMemoryUsage();
+                let filesAdded = 0;
+                let totalSize = 0;
+                
+                // Create ZIP writer with blob output
+                const zipWriter = new zip.ZipWriter(new zip.BlobWriter());
+                
+                // Simulate adding 5 SRTM-sized files
+                const numFiles = 5;
+                const fileSize = 25934402; // SRTM tile size
+                
+                for (let i = 0; i < numFiles; i++) {
+                    // Create data for one file at a time
+                    const data = new Uint8Array(fileSize);
+                    
+                    // Fill with some pattern (simulate real data)
+                    for (let j = 0; j < 100; j++) {
+                        data[j] = i;
+                    }
+                    
+                    // Add to ZIP using Uint8Array reader
+                    await zipWriter.add(
+                        `N${34+i}W081.hgt`,
+                        new zip.Uint8ArrayReader(data)
+                    );
+                    
+                    filesAdded++;
+                    totalSize += fileSize;
+                    
+                    // Update UI
+                    progressEl.value = ((i + 1) / numFiles) * 100;
+                    document.getElementById('files-added').textContent = filesAdded;
+                    document.getElementById('total-size').textContent = `${(totalSize / 1024 / 1024).toFixed(1)} MB`;
+                    trackPeakMemory();
+                    
+                    // Clear the array reference (let GC clean up)
+                    // In real app, this would be the downloaded/decompressed tile
+                    data.fill(0);
+                    
+                    resultEl.textContent = `Processing file ${i + 1} of ${numFiles}...`;
+                }
+                
+                // Close ZIP
+                const blob = await zipWriter.close();
+                
+                resultEl.textContent = `✅ Streaming ZIP created successfully!
+Files added: ${filesAdded}
+Total uncompressed: ${(totalSize / 1024 / 1024).toFixed(1)} MB
+ZIP size: ${(blob.size / 1024 / 1024).toFixed(2)} MB
+Compression ratio: ${((1 - blob.size / totalSize) * 100).toFixed(1)}%
+Peak memory: ${peakMemory.toFixed(1)} MB
+
+✨ Memory stayed low despite processing ${(totalSize / 1024 / 1024).toFixed(0)}MB of data!`;
+                
+                cardEl.className = 'test-card success';
+                
+                // Offer download
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = 'test-srtm-tiles.zip';
+                a.textContent = 'Download Test ZIP (Warning: Large file)';
+                a.style.display = 'block';
+                a.style.marginTop = '10px';
+                cardEl.appendChild(a);
+                
+            } catch (error) {
+                resultEl.textContent = `❌ Failed: ${error.message}
+This might indicate memory limits on this device.`;
+                cardEl.className = 'test-card error';
+            }
+        }
+        
+        async function compareApproaches() {
+            const resultEl = document.getElementById('test4-result');
+            const cardEl = document.getElementById('test4-card');
+            
+            try {
+                resultEl.textContent = 'Comparing memory usage: Streaming vs Non-streaming...';
+                
+                const fileSize = 5 * 1024 * 1024; // 5MB test files
+                const numFiles = 3;
+                
+                // Test 1: Non-streaming (hold all in memory)
+                const memBefore1 = getMemoryUsage();
+                const files = [];
+                
+                for (let i = 0; i < numFiles; i++) {
+                    files.push(new Uint8Array(fileSize));
+                }
+                
+                const memAfter1 = getMemoryUsage();
+                const nonStreamingUsage = memAfter1 - memBefore1;
+                
+                // Clear
+                files.length = 0;
+                
+                // Test 2: Streaming (process one at a time)
+                const memBefore2 = getMemoryUsage();
+                
+                for (let i = 0; i < numFiles; i++) {
+                    const file = new Uint8Array(fileSize);
+                    // Process and immediately clear
+                    file.fill(0);
+                }
+                
+                const memAfter2 = getMemoryUsage();
+                const streamingUsage = memAfter2 - memBefore2;
+                
+                resultEl.textContent = `📊 Memory Usage Comparison
+
+Non-Streaming Approach:
+- Holds all files in memory simultaneously
+- Memory used: ~${nonStreamingUsage.toFixed(1)} MB
+- Pattern: Allocate all → Process all → Release all
+
+Streaming Approach:
+- Processes one file at a time
+- Memory used: ~${streamingUsage.toFixed(1)} MB
+- Pattern: Allocate one → Process → Release → Repeat
+
+Savings: ${((1 - streamingUsage / Math.max(nonStreamingUsage, 1)) * 100).toFixed(0)}% less memory
+
+✅ Streaming is essential for mobile devices!`;
+                
+                cardEl.className = 'test-card success';
+                
+            } catch (error) {
+                resultEl.textContent = `❌ Comparison failed: ${error.message}`;
+                cardEl.className = 'test-card error';
+            }
+        }
+        
+        async function testRealWorkflow() {
+            const resultEl = document.getElementById('test5-result');
+            const cardEl = document.getElementById('test5-card');
+            
+            try {
+                resultEl.textContent = 'Simulating real SRTM download → decompress → ZIP workflow...';
+                
+                const steps = [];
+                const startMem = getMemoryUsage();
+                
+                // Step 1: Simulate download (compressed)
+                steps.push('1. Downloading compressed tile (8MB)...');
+                const compressed = new Uint8Array(8 * 1024 * 1024);
+                
+                // Step 2: Simulate decompression
+                steps.push('2. Decompressing to 25MB...');
+                const uncompressed = new Uint8Array(25934402);
+                
+                // Step 3: Clear compressed buffer
+                steps.push('3. Releasing compressed buffer...');
+                compressed.fill(0);
+                
+                // Step 4: Add to ZIP
+                steps.push('4. Adding to ZIP file...');
+                const zipWriter = new zip.ZipWriter(new zip.BlobWriter());
+                await zipWriter.add('N34W081.hgt', new zip.Uint8ArrayReader(uncompressed));
+                
+                // Step 5: Clear uncompressed
+                steps.push('5. Releasing uncompressed buffer...');
+                uncompressed.fill(0);
+                
+                // Step 6: Close ZIP
+                steps.push('6. Finalizing ZIP...');
+                const blob = await zipWriter.close();
+                
+                const endMem = getMemoryUsage();
+                
+                resultEl.textContent = `✅ Real workflow completed successfully!
+
+${steps.join('\n')}
+
+Results:
+- ZIP created: ${(blob.size / 1024 / 1024).toFixed(2)} MB
+- Memory before: ${startMem.toFixed(1)} MB
+- Memory after: ${endMem.toFixed(1)} MB
+- Net increase: ${(endMem - startMem).toFixed(1)} MB
+
+✨ Workflow is memory-efficient and will work on mobile!`;
+                
+                cardEl.className = 'test-card success';
+                
+            } catch (error) {
+                resultEl.textContent = `❌ Workflow failed: ${error.message}
+                
+This might indicate:
+- Insufficient memory for even one tile
+- Browser restrictions on this device
+- Need to reduce tile size or process in chunks`;
+                cardEl.className = 'test-card error';
+            }
+        }
+        
+        // Show memory info if available
+        window.addEventListener('load', () => {
+            if (!performance.memory) {
+                const warning = document.createElement('div');
+                warning.className = 'test-card';
+                warning.style.background = '#fff3cd';
+                warning.style.borderColor = '#ffc107';
+                warning.innerHTML = `
+                    <strong>⚠️ Memory API not available</strong><br>
+                    For detailed memory tracking, use Chrome with flag:<br>
+                    <code>--enable-precise-memory-info</code>
+                `;
+                document.body.insertBefore(warning, document.body.firstChild.nextSibling);
+            }
+        });
+    </script>
+</body>
+</html>

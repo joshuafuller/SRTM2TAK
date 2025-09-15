@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>SRTM2TAK Test</title>
+  <style>
+    body { margin: 0; padding: 20px; font-family: sans-serif; }
+    .info { background: #f0f0f0; padding: 10px; border-radius: 5px; margin-bottom: 20px; }
+    #status { margin-top: 20px; }
+    .error { color: red; }
+    .success { color: green; }
+  </style>
+</head>
+<body>
+  <div class="info">
+    <h1>SRTM2TAK Test Page</h1>
+    <p>Testing if the application loads correctly...</p>
+  </div>
+  
+  <div id="status"></div>
+  
+  <script>
+    const status = document.getElementById('status');
+    
+    // Test 1: Check if Vite dev server is running
+    fetch('http://localhost:5173/')
+      .then(response => {
+        if (response.ok) {
+          status.innerHTML += '<p class="success">✓ Dev server is running</p>';
+          return response.text();
+        } else {
+          throw new Error('Dev server not responding');
+        }
+      })
+      .then(html => {
+        // Test 2: Check if main HTML loads
+        if (html.includes('SRTM2TAK')) {
+          status.innerHTML += '<p class="success">✓ Main HTML loads</p>';
+        }
+        
+        // Test 3: Check if app can be accessed
+        status.innerHTML += '<p>App is available at: <a href="http://localhost:5173" target="_blank">http://localhost:5173</a></p>';
+        
+        // Test 4: Try to load the main module
+        return fetch('http://localhost:5173/src/main.ts');
+      })
+      .then(response => {
+        if (response.ok) {
+          status.innerHTML += '<p class="success">✓ Main TypeScript module found</p>';
+        }
+      })
+      .catch(error => {
+        status.innerHTML += `<p class="error">✗ Error: ${error.message}</p>`;
+      });
+      
+    // Test MapLibre GL availability
+    setTimeout(() => {
+      const script = document.createElement('script');
+      script.src = 'https://unpkg.com/maplibre-gl@4.0.0/dist/maplibre-gl.js';
+      script.onload = () => {
+        if (window.maplibregl) {
+          status.innerHTML += '<p class="success">✓ MapLibre GL loaded</p>';
+        }
+      };
+      document.head.appendChild(script);
+    }, 1000);
+  </script>
+</body>
+</html>

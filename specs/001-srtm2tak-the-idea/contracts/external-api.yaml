@@ -1,0 +1,101 @@
+openapi: 3.0.0
+info:
+  title: SRTM2TAK External Dependencies
+  description: External API contracts that the PWA depends on
+  version: 1.0.0
+
+servers:
+  - url: https://s3.amazonaws.com/elevation-tiles-prod
+    description: AWS Terrain Tiles S3 Bucket
+
+paths:
+  /skadi/{latDir}/{tileId}.hgt.gz:
+    get:
+      summary: Download SRTM tile (gzipped)
+      description: Fetches a single SRTM elevation tile in gzipped HGT format
+      parameters:
+        - name: latDir
+          in: path
+          required: true
+          schema:
+            type: string
+            pattern: '^[NS]\d{2}$'
+          example: N34
+          description: Latitude directory (first 3 chars of tile ID)
+        - name: tileId
+          in: path
+          required: true
+          schema:
+            type: string
+            pattern: '^[NS]\d{2}[EW]\d{3}$'
+          example: N34W081
+          description: Full tile identifier
+      responses:
+        '200':
+          description: Successful tile download
+          headers:
+            Access-Control-Allow-Origin:
+              schema:
+                type: string
+                example: '*'
+            Content-Type:
+              schema:
+                type: string
+                example: 'application/gzip'
+            Content-Length:
+              schema:
+                type: integer
+                example: 8388608
+          content:
+            application/gzip:
+              schema:
+                type: string
+                format: binary
+                description: Gzipped SRTM HGT file (~8MB)
+        '404':
+          description: Tile not found (ocean or no coverage)
+          content:
+            application/xml:
+              schema:
+                type: object
+                properties:
+                  Error:
+                    type: object
+                    properties:
+                      Code:
+                        type: string
+                        example: NoSuchKey
+                      Message:
+                        type: string
+                        example: The specified key does not exist
+        '403':
+          description: Access denied
+          content:
+            application/xml:
+              schema:
+                type: object
+                properties:
+                  Error:
+                    type: object
+                    properties:
+                      Code:
+                        type: string
+                        example: AccessDenied
+
+components:
+  schemas:
+    SRTMTile:
+      type: object
+      properties:
+        url:
+          type: string
+          format: uri
+          example: https://s3.amazonaws.com/elevation-tiles-prod/skadi/N34/N34W081.hgt.gz
+        expectedSize:
+          type: integer
+          description: Expected file size in bytes
+          example: 8388608
+        uncompressedSize:
+          type: integer
+          description: Size after decompression
+          example: 25934402

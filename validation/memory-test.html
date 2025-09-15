@@ -1,0 +1,505 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Memory Limits Test - SRTM2TAK</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            padding: 20px;
+            max-width: 800px;
+            margin: 0 auto;
+            background: #f5f5f5;
+        }
+        h1 {
+            color: #333;
+            border-bottom: 2px solid #2196F3;
+            padding-bottom: 10px;
+        }
+        .info {
+            background: white;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 20px 0;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .test-section {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            margin: 20px 0;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        button {
+            background: #2196F3;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 4px;
+            font-size: 16px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover {
+            background: #1976D2;
+        }
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+        .danger {
+            background: #f44336;
+        }
+        .danger:hover {
+            background: #d32f2f;
+        }
+        .success {
+            color: #4CAF50;
+            font-weight: bold;
+        }
+        .error {
+            color: #f44336;
+            font-weight: bold;
+        }
+        .warning {
+            color: #FF9800;
+            font-weight: bold;
+        }
+        .log {
+            background: #f5f5f5;
+            padding: 10px;
+            border-radius: 4px;
+            font-family: monospace;
+            white-space: pre-wrap;
+            max-height: 300px;
+            overflow-y: auto;
+            margin: 10px 0;
+        }
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 10px;
+            margin: 20px 0;
+        }
+        .stat {
+            background: #E3F2FD;
+            padding: 10px;
+            border-radius: 4px;
+            text-align: center;
+        }
+        .stat-value {
+            font-size: 24px;
+            font-weight: bold;
+            color: #1976D2;
+        }
+        .stat-label {
+            font-size: 12px;
+            color: #666;
+            margin-top: 5px;
+        }
+    </style>
+</head>
+<body>
+    <h1>🧪 SRTM2TAK Memory Limits Test</h1>
+    
+    <div class="info">
+        <h2>Device Information</h2>
+        <div id="device-info">Detecting...</div>
+    </div>
+
+    <div class="test-section">
+        <h2>Test 1: Single SRTM Tile (25MB)</h2>
+        <p>Allocate memory for one uncompressed SRTM tile</p>
+        <button onclick="testSingleTile()">Allocate 25MB</button>
+        <button onclick="clearBuffers()" class="danger">Clear All Buffers</button>
+        <div id="test1-result" class="log"></div>
+    </div>
+
+    <div class="test-section">
+        <h2>Test 2: Progressive Allocation</h2>
+        <p>Keep allocating 25MB buffers until browser crashes or refuses</p>
+        <button onclick="testProgressive()">Start Progressive Test</button>
+        <button onclick="stopProgressive()" class="danger">Stop Test</button>
+        <div id="test2-result" class="log"></div>
+    </div>
+
+    <div class="test-section">
+        <h2>Test 3: Simulate Download & Process</h2>
+        <p>Simulate the actual memory pattern of downloading and processing tiles</p>
+        <button onclick="testRealistic()">Run Realistic Test</button>
+        <div id="test3-result" class="log"></div>
+    </div>
+
+    <div class="test-section">
+        <h2>Test 4: IndexedDB Storage</h2>
+        <p>Test storing large data in IndexedDB</p>
+        <button onclick="testIndexedDB()">Test IndexedDB</button>
+        <button onclick="clearIndexedDB()" class="danger">Clear IndexedDB</button>
+        <div id="test4-result" class="log"></div>
+    </div>
+
+    <div class="stats">
+        <div class="stat">
+            <div class="stat-value" id="buffers-count">0</div>
+            <div class="stat-label">Active Buffers</div>
+        </div>
+        <div class="stat">
+            <div class="stat-value" id="total-mb">0 MB</div>
+            <div class="stat-label">Total Allocated</div>
+        </div>
+        <div class="stat">
+            <div class="stat-value" id="peak-mb">0 MB</div>
+            <div class="stat-label">Peak Memory</div>
+        </div>
+        <div class="stat">
+            <div class="stat-value" id="device-limit">? MB</div>
+            <div class="stat-label">Device Limit</div>
+        </div>
+    </div>
+
+    <div class="info">
+        <h2>Results Summary</h2>
+        <div id="summary" class="log">Tests not yet run...</div>
+    </div>
+
+    <script>
+        // Global state
+        let buffers = [];
+        let progressiveRunning = false;
+        let peakMemory = 0;
+        const SRTM_SIZE = 25934402; // Exact SRTM1 tile size
+        
+        // Detect device info
+        function detectDevice() {
+            const info = {
+                userAgent: navigator.userAgent,
+                platform: navigator.platform,
+                memory: navigator.deviceMemory || 'Unknown',
+                cores: navigator.hardwareConcurrency || 'Unknown',
+                connection: navigator.connection?.effectiveType || 'Unknown'
+            };
+            
+            let deviceType = 'Desktop';
+            let browser = 'Unknown';
+            
+            if (/iPhone|iPad|iPod/.test(info.userAgent)) {
+                deviceType = 'iOS';
+                browser = /CriOS/.test(info.userAgent) ? 'Chrome' : 'Safari';
+            } else if (/Android/.test(info.userAgent)) {
+                deviceType = 'Android';
+                browser = /Chrome/.test(info.userAgent) ? 'Chrome' : 'Other';
+            } else if (/Windows/.test(info.userAgent)) {
+                deviceType = 'Windows';
+            } else if (/Mac/.test(info.userAgent)) {
+                deviceType = 'macOS';
+            }
+            
+            if (/Chrome/.test(info.userAgent) && !/Edge/.test(info.userAgent)) {
+                browser = 'Chrome';
+            } else if (/Firefox/.test(info.userAgent)) {
+                browser = 'Firefox';
+            } else if (/Safari/.test(info.userAgent) && !/Chrome/.test(info.userAgent)) {
+                browser = 'Safari';
+            } else if (/Edge/.test(info.userAgent)) {
+                browser = 'Edge';
+            }
+            
+            const html = `
+                <strong>Device:</strong> ${deviceType}<br>
+                <strong>Browser:</strong> ${browser}<br>
+                <strong>Platform:</strong> ${info.platform}<br>
+                <strong>Device Memory:</strong> ${info.memory} GB<br>
+                <strong>CPU Cores:</strong> ${info.cores}<br>
+                <strong>Connection:</strong> ${info.connection}<br>
+                <strong>Screen:</strong> ${window.screen.width}x${window.screen.height}<br>
+                ${performance.memory ? `<strong>JS Heap Limit:</strong> ${(performance.memory.jsHeapSizeLimit / 1024 / 1024).toFixed(0)} MB` : ''}
+            `;
+            
+            document.getElementById('device-info').innerHTML = html;
+            
+            // Store device type for recommendations
+            window.deviceProfile = {
+                type: deviceType,
+                browser: browser,
+                isIOS: deviceType === 'iOS',
+                isAndroid: deviceType === 'Android',
+                isMobile: deviceType === 'iOS' || deviceType === 'Android'
+            };
+        }
+        
+        function updateStats() {
+            const totalBytes = buffers.reduce((sum, buf) => sum + buf.byteLength, 0);
+            const totalMB = (totalBytes / 1024 / 1024).toFixed(1);
+            
+            document.getElementById('buffers-count').textContent = buffers.length;
+            document.getElementById('total-mb').textContent = `${totalMB} MB`;
+            
+            if (totalBytes > peakMemory) {
+                peakMemory = totalBytes;
+                document.getElementById('peak-mb').textContent = `${(peakMemory / 1024 / 1024).toFixed(1)} MB`;
+            }
+            
+            // Try to get memory info if available
+            if (performance.memory) {
+                const used = performance.memory.usedJSHeapSize;
+                const limit = performance.memory.jsHeapSizeLimit;
+                const percent = (used / limit * 100).toFixed(1);
+                return `Heap: ${(used / 1024 / 1024).toFixed(1)} MB / ${(limit / 1024 / 1024).toFixed(0)} MB (${percent}%)`;
+            }
+            return '';
+        }
+        
+        function log(elementId, message, type = '') {
+            const element = document.getElementById(elementId);
+            const timestamp = new Date().toLocaleTimeString();
+            const prefix = type ? `<span class="${type}">[${type.toUpperCase()}]</span> ` : '';
+            element.innerHTML += `[${timestamp}] ${prefix}${message}\n`;
+            element.scrollTop = element.scrollHeight;
+        }
+        
+        async function testSingleTile() {
+            const resultId = 'test1-result';
+            log(resultId, 'Allocating 25MB buffer for SRTM tile...');
+            
+            try {
+                const buffer = new ArrayBuffer(SRTM_SIZE);
+                buffers.push(buffer);
+                
+                log(resultId, `✅ Successfully allocated ${(SRTM_SIZE / 1024 / 1024).toFixed(2)} MB`, 'success');
+                log(resultId, updateStats());
+                
+                // Try to write to it
+                const view = new Uint16Array(buffer);
+                view[0] = 1234;
+                view[view.length - 1] = 5678;
+                
+                log(resultId, '✅ Buffer is writable', 'success');
+            } catch (error) {
+                log(resultId, `❌ Failed to allocate: ${error.message}`, 'error');
+            }
+        }
+        
+        async function testProgressive() {
+            const resultId = 'test2-result';
+            progressiveRunning = true;
+            let count = 0;
+            
+            log(resultId, 'Starting progressive allocation test...');
+            log(resultId, 'Will keep allocating 25MB buffers until failure');
+            
+            const interval = setInterval(() => {
+                if (!progressiveRunning) {
+                    clearInterval(interval);
+                    log(resultId, `Stopped by user after ${count} allocations`, 'warning');
+                    return;
+                }
+                
+                try {
+                    const buffer = new ArrayBuffer(SRTM_SIZE);
+                    buffers.push(buffer);
+                    count++;
+                    
+                    const totalMB = (count * SRTM_SIZE / 1024 / 1024).toFixed(1);
+                    log(resultId, `Allocation ${count}: Total ${totalMB} MB`);
+                    
+                    const stats = updateStats();
+                    if (stats) {
+                        log(resultId, stats);
+                    }
+                    
+                    // On mobile, stop at reasonable limits
+                    if (window.deviceProfile?.isMobile && count >= 10) {
+                        clearInterval(interval);
+                        progressiveRunning = false;
+                        log(resultId, `⚠️ Stopping at ${count} tiles (mobile safety limit)`, 'warning');
+                        document.getElementById('device-limit').textContent = `~${totalMB} MB`;
+                    }
+                } catch (error) {
+                    clearInterval(interval);
+                    progressiveRunning = false;
+                    const totalMB = ((count - 1) * SRTM_SIZE / 1024 / 1024).toFixed(1);
+                    log(resultId, `❌ Failed at allocation ${count}: ${error.message}`, 'error');
+                    log(resultId, `Maximum successful: ${count - 1} tiles (${totalMB} MB)`, 'success');
+                    document.getElementById('device-limit').textContent = `~${totalMB} MB`;
+                }
+            }, 100);
+        }
+        
+        function stopProgressive() {
+            progressiveRunning = false;
+        }
+        
+        async function testRealistic() {
+            const resultId = 'test3-result';
+            log(resultId, 'Simulating realistic download and process flow...');
+            
+            try {
+                // Step 1: Simulate fetch
+                log(resultId, '1. Simulating tile fetch (8MB compressed)...');
+                const compressed = new ArrayBuffer(8 * 1024 * 1024);
+                
+                // Step 2: Simulate decompression
+                log(resultId, '2. Simulating decompression to 25MB...');
+                const uncompressed = new ArrayBuffer(SRTM_SIZE);
+                
+                // Step 3: Clear compressed (like we would in real app)
+                log(resultId, '3. Clearing compressed buffer...');
+                // In real app: compressed = null;
+                
+                // Step 4: Process (create typed array view)
+                log(resultId, '4. Creating typed array view...');
+                const view = new Int16Array(uncompressed);
+                
+                // Step 5: Simulate adding to ZIP
+                log(resultId, '5. Simulating ZIP addition...');
+                // In streaming, we'd write and release
+                
+                log(resultId, '✅ Realistic flow completed successfully', 'success');
+                log(resultId, `Peak memory usage during flow: ${updateStats()}`);
+                
+                // Clean up
+                buffers = [];
+                
+            } catch (error) {
+                log(resultId, `❌ Realistic flow failed: ${error.message}`, 'error');
+            }
+        }
+        
+        async function testIndexedDB() {
+            const resultId = 'test4-result';
+            log(resultId, 'Testing IndexedDB storage capacity...');
+            
+            try {
+                // Open database
+                const dbName = 'SRTM2TAK_Test';
+                const request = indexedDB.open(dbName, 1);
+                
+                request.onupgradeneeded = (event) => {
+                    const db = event.target.result;
+                    if (!db.objectStoreNames.contains('tiles')) {
+                        db.createObjectStore('tiles', { keyPath: 'id' });
+                    }
+                };
+                
+                request.onsuccess = async (event) => {
+                    const db = event.target.result;
+                    
+                    // Test storing a tile
+                    const testData = new ArrayBuffer(SRTM_SIZE);
+                    const transaction = db.transaction(['tiles'], 'readwrite');
+                    const store = transaction.objectStore('tiles');
+                    
+                    try {
+                        await store.add({ id: 'test-tile', data: testData });
+                        log(resultId, '✅ Successfully stored 25MB tile in IndexedDB', 'success');
+                        
+                        // Try to estimate storage
+                        if (navigator.storage && navigator.storage.estimate) {
+                            const estimate = await navigator.storage.estimate();
+                            const usedMB = (estimate.usage / 1024 / 1024).toFixed(1);
+                            const quotaMB = (estimate.quota / 1024 / 1024).toFixed(1);
+                            log(resultId, `Storage: ${usedMB} MB used of ${quotaMB} MB quota`);
+                            log(resultId, `Available: ${(estimate.quota - estimate.usage) / 1024 / 1024}.toFixed(1)} MB`);
+                        }
+                    } catch (error) {
+                        log(resultId, `❌ Failed to store in IndexedDB: ${error.message}`, 'error');
+                    }
+                    
+                    db.close();
+                };
+                
+                request.onerror = () => {
+                    log(resultId, '❌ Failed to open IndexedDB', 'error');
+                };
+                
+            } catch (error) {
+                log(resultId, `❌ IndexedDB test failed: ${error.message}`, 'error');
+            }
+        }
+        
+        async function clearIndexedDB() {
+            const resultId = 'test4-result';
+            try {
+                await indexedDB.deleteDatabase('SRTM2TAK_Test');
+                log(resultId, '✅ IndexedDB cleared', 'success');
+            } catch (error) {
+                log(resultId, `❌ Failed to clear: ${error.message}`, 'error');
+            }
+        }
+        
+        function clearBuffers() {
+            const count = buffers.length;
+            const totalMB = (buffers.reduce((sum, buf) => sum + buf.byteLength, 0) / 1024 / 1024).toFixed(1);
+            buffers = [];
+            updateStats();
+            
+            // Log to all test results
+            ['test1-result', 'test2-result', 'test3-result'].forEach(id => {
+                if (document.getElementById(id).innerHTML) {
+                    log(id, `🧹 Cleared ${count} buffers (${totalMB} MB)`, 'warning');
+                }
+            });
+        }
+        
+        function generateSummary() {
+            const summary = document.getElementById('summary');
+            const profile = window.deviceProfile;
+            
+            let recommendations = `
+📱 Device Profile: ${profile.type} / ${profile.browser}
+
+💾 Memory Limits Found:
+- Single tile (25MB): ${buffers.length > 0 ? '✅ OK' : '❓ Not tested'}
+- Device limit: ${document.getElementById('device-limit').textContent}
+
+📋 Recommendations for ${profile.type}:
+`;
+            
+            if (profile.isIOS) {
+                recommendations += `
+- ⚠️ iOS Safari has strict memory limits
+- 🎯 Limit to 5-10 tiles maximum
+- 💡 Process tiles sequentially, never parallel
+- 🔄 Clear buffers immediately after use
+- ⏸️ Add pauses between tile processing`;
+            } else if (profile.isAndroid) {
+                recommendations += `
+- ✅ Android generally more permissive
+- 🎯 Can handle 10-20 tiles
+- 💡 Monitor available memory during processing
+- 🔄 Implement aggressive garbage collection`;
+            } else {
+                recommendations += `
+- ✅ Desktop has generous memory limits
+- 🎯 Can handle 50+ tiles typically
+- 💡 Still process sequentially for safety
+- 🔄 Monitor performance.memory if available`;
+            }
+            
+            summary.textContent = recommendations;
+        }
+        
+        // Initialize on load
+        window.addEventListener('load', () => {
+            detectDevice();
+            
+            // Auto-generate summary after any test
+            document.querySelectorAll('button').forEach(btn => {
+                if (!btn.classList.contains('danger')) {
+                    btn.addEventListener('click', () => {
+                        setTimeout(generateSummary, 2000);
+                    });
+                }
+            });
+        });
+        
+        // Warn before leaving if buffers allocated
+        window.addEventListener('beforeunload', (e) => {
+            if (buffers.length > 0) {
+                e.preventDefault();
+                e.returnValue = 'Memory buffers are still allocated. Leave anyway?';
+            }
+        });
+    </script>
+</body>
+</html>

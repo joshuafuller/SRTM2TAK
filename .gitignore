@@ -1,0 +1,58 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# Dependencies
+node_modules
+dist
+dist-ssr
+*.local
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Environment files
+.env
+.env.local
+.env.production
+
+# Test coverage
+coverage
+*.lcov
+
+# Build outputs
+dist/
+build/
+
+# Playwright and test artifacts
+.playwright-mcp/
+playwright-report/
+test-results/
+
+# Test data (keep samples, ignore large files)
+test-data/samples/*.hgt
+!test-data/samples/.gitkeep
+test-data/downloads/
+
+# Temporary files
+*.tmp
+*.temp
+.cache/
+test-output.log
+
+# PWA
+sw.js
+workbox-*.js
