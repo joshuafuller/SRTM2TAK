@@ -14,10 +14,11 @@ describe('Download Pipeline Integration', () => {
   const { getDb } = useTestDatabase();
   let storageManager: StorageManager;
   let memoryMonitor: MemoryMonitor;
-  
-  beforeEach(() => {
+
+  beforeEach(async () => {
     const db = getDb();
     storageManager = new StorageManager(db!);
+    await storageManager.init();
     memoryMonitor = new MemoryMonitor();
   });
   

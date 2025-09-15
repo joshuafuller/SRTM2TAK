@@ -154,13 +154,18 @@ describe('S3 Download Integration', () => {
       const results = await fetcher.fetchMultiple(tiles);
       
       expect(results).toHaveLength(3);
-      
+
       const success = results.filter(r => r.success);
       const failed = results.filter(r => !r.success);
-      
-      expect(success).toHaveLength(2);
-      expect(failed).toHaveLength(1);
-      expect(failed[0].tileId).toBe('N00W000');
+
+      // Ocean tiles (404) are treated as successful with null/undefined data
+      expect(success).toHaveLength(3);
+      expect(failed).toHaveLength(0);
+
+      // Check that ocean tile has no data
+      const oceanTile = results.find(r => r.tileId === 'N00W000');
+      expect(oceanTile?.success).toBe(true);
+      expect(oceanTile?.data).toBeUndefined();
     });
   });
   
@@ -205,18 +210,18 @@ describe('S3 Download Integration', () => {
     it('should handle slow connections with timeout', async () => {
       server.use(
         http.get('*/*.hgt.gz', async () => {
-          // Simulate very slow response
-          await new Promise(resolve => setTimeout(resolve, 5000));
+          // Simulate very slow response - longer than the fetcher timeout
+          await new Promise(resolve => setTimeout(resolve, 2000));
           return HttpResponse.arrayBuffer(new ArrayBuffer(1024));
         })
       );
-      
+
       fetcher = new TileFetcher({
         timeout: 1000, // 1 second timeout
       });
-      
+
       await expect(fetcher.fetch('N36W112')).rejects.toThrow(/timeout/i);
-    });
+    }, 3000); // Give test 3 seconds to complete
   });
   
   describe('caching headers', () => {

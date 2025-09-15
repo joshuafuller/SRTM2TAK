@@ -26,6 +26,20 @@ vi.mock('@/lib/decompressor', () => ({
   }
 }));
 
+vi.mock('@/lib/stream-zip', () => ({
+  StreamZip: vi.fn().mockImplementation(() => ({
+    createZip: vi.fn().mockImplementation(async (tiles: AsyncIterable<any>) => {
+      // Consume the async iterable
+      let count = 0;
+      for await (const _ of tiles) {
+        count++;
+      }
+      // Return a mock Blob
+      return new Blob([new Uint8Array([80, 75, 3, 4])], { type: 'application/zip' });
+    })
+  }))
+}));
+
 describe('DownloadManager', () => {
   let manager: DownloadManager;
   

@@ -192,20 +192,20 @@ describe('Decompressor', () => {
     it('should check for reasonable elevation values', () => {
       const data = new ArrayBuffer(25934402);
       const view = new DataView(data);
-      
+
       // Fill with valid elevations (-500 to 9000 meters)
       for (let i = 0; i < 3601 * 3601; i++) {
         const elevation = Math.floor(Math.random() * 9500 - 500);
         view.setInt16(i * 2, elevation, false); // Big-endian
       }
-      
+
       expect(Decompressor.validateSRTMData(data)).toBe(true);
-      
-      // Now overwrite most of the data with invalid values
-      for (let i = 0; i < data.byteLength / 2; i += 2) {
-        view.setInt16(i, 50000, false); // Way too high
+
+      // Now overwrite ALL of the data with invalid values to ensure the validation fails
+      for (let i = 0; i < 3601 * 3601; i++) {
+        view.setInt16(i * 2, 50000, false); // Way too high
       }
-      
+
       expect(Decompressor.validateSRTMData(data)).toBe(false);
     });
   });

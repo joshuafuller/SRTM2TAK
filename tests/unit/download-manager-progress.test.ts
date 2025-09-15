@@ -44,6 +44,21 @@ vi.mock('@/lib/decompressor', () => ({
   }
 }));
 
+// Mock StreamZip to create a zip
+vi.mock('@/lib/stream-zip', () => ({
+  StreamZip: vi.fn().mockImplementation(() => ({
+    createZip: vi.fn().mockImplementation(async (tiles: AsyncIterable<any>) => {
+      // Consume the async iterable
+      let totalSize = 0;
+      for await (const tile of tiles) {
+        totalSize += tile.data.byteLength;
+      }
+      // Return a mock Blob
+      return new Blob([new Uint8Array(totalSize)], { type: 'application/zip' });
+    })
+  }))
+}));
+
 describe('DownloadManager progress accounting', () => {
   beforeEach(() => {
     vi.useFakeTimers();
