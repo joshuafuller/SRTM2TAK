@@ -22,6 +22,14 @@ export interface DownloadManagerOptions {
   onError?: (error: Error) => void;
 }
 
+/**
+ * DownloadManager - Handles concurrent tile downloads with progress tracking
+ *
+ * Progress Tracking Architecture:
+ * - handleNetworkProgress: Tracks bytes downloaded for speed/bandwidth (does NOT emit progress)
+ * - updateProgress: Single source of truth for progress events (emits to UI)
+ * - tilesCompleted/tilesTotal: Authoritative counters for progress calculation
+ */
 export class DownloadManager {
   private fetcher: TileFetcher;
   private storage: StorageManager;
@@ -43,6 +51,8 @@ export class DownloadManager {
   private tilesFromCache: number = 0;
   private tilesFromNetwork: number = 0;
   private lastProgressUpdate: number = 0;
+  private tilesCompleted: number = 0;
+  private tilesTotal: number = 0;
   
   constructor(private options: DownloadManagerOptions = {}) {
     this.fetcher = new TileFetcher({
@@ -120,6 +130,8 @@ export class DownloadManager {
     this.actualTotalBytes = 0;
     this.tilesFromCache = 0;
     this.tilesFromNetwork = 0;
+    this.tilesCompleted = 0;
+    this.tilesTotal = tileIds.length;
     this.lastProgressUpdate = Date.now();
     // Estimate total compressed size for progress (will be refined with actual data)
     this.totalEstimatedBytes = tileIds.length * 6.5 * 1024 * 1024;
@@ -176,6 +188,8 @@ export class DownloadManager {
 
   /**
    * Handle per-chunk network progress updates
+   * This ONLY tracks bytes for bandwidth/speed calculations
+   * Does NOT emit progress events - that's handled by updateProgress
    */
   private handleNetworkProgress(p: { tileId: string; loaded: number; total: number }): void {
     const prev = this.tileBytesLoaded.get(p.tileId) || 0;
@@ -191,39 +205,12 @@ export class DownloadManager {
       this.actualTotalBytes += p.total;
     }
 
-    // Throttle progress updates to avoid overwhelming the UI (max 10 updates per second)
+    // Only emit fine-grained progress during active downloads, throttled
     const now = Date.now();
-    if (now - this.lastProgressUpdate < 100) return;
-    this.lastProgressUpdate = now;
-
-    // Emit streaming progress to UI if available
-    if (this.options.onProgress) {
-      const elapsed = now - this.downloadStartTime;
-      const speed = elapsed > 0 ? this.bytesDownloaded / (elapsed / 1000) : 0;
-
-      const totalTiles = this.currentSession ? this.currentSession.tiles.length : 0;
-      const completedTiles = this.currentSession ? (this.currentSession.completed.length + this.currentSession.skipped.length) : 0;
-
-      // Use actual total bytes if available, otherwise use refined estimate
-      const estimatedBytesPerTile = this.tilesFromNetwork > 0 ? this.bytesDownloaded / this.tilesFromNetwork : 6.5 * 1024 * 1024;
-      const refinedTotalBytes = this.actualTotalBytes > 0 ?
-        this.actualTotalBytes + (totalTiles - this.tilesFromNetwork) * estimatedBytesPerTile :
-        totalTiles * estimatedBytesPerTile;
-
-      const progress: DownloadProgress = {
-        current: completedTiles,
-        total: totalTiles,
-        percent: totalTiles > 0 ? Math.min(99, Math.round((completedTiles / totalTiles) * 100)) : 0,
-        bytesDownloaded: this.bytesDownloaded,
-        bytesTotal: refinedTotalBytes,
-        speed,
-        timeElapsed: elapsed,
-        timeRemaining: speed > 0 ? Math.max(0, Math.round(((refinedTotalBytes - this.bytesDownloaded) / speed) * 1000)) : 0,
-        tilesFromCache: this.tilesFromCache,
-        tilesFromNetwork: this.tilesFromNetwork,
-        averageTileSize: this.tilesFromNetwork > 0 ? Math.round(this.bytesDownloaded / this.tilesFromNetwork) : 0,
-      };
-      this.options.onProgress(progress);
+    if (now - this.lastProgressUpdate >= 100 && this.options.onProgress) {
+      this.lastProgressUpdate = now;
+      // Call the central updateProgress method to emit progress
+      this.updateProgress(this.tilesCompleted, this.tilesTotal);
     }
   }
   
@@ -334,6 +321,7 @@ export class DownloadManager {
       }
 
       completed++;
+      this.tilesCompleted = completed;
       this.updateProgress(completed, total);
       if (shouldYield(result)) {
         yield result as T;
@@ -551,6 +539,10 @@ export class DownloadManager {
    * Update download progress
    */
   private updateProgress(current: number, total: number): void {
+    // Update instance variables to keep them in sync
+    this.tilesCompleted = current;
+    this.tilesTotal = total;
+
     const now = Date.now();
     const elapsed = now - this.downloadStartTime;
 
@@ -569,9 +561,9 @@ export class DownloadManager {
     const refinedTotalBytes = this.bytesDownloaded + estimatedRemainingBytes;
 
     const progress: DownloadProgress = {
-      current,
-      total,
-      percent: Math.round((current / total) * 100),
+      current: this.tilesCompleted,
+      total: this.tilesTotal,
+      percent: Math.round((this.tilesCompleted / this.tilesTotal) * 100),
       bytesDownloaded: this.bytesDownloaded,
       bytesTotal: refinedTotalBytes,
       speed: effectiveSpeed,

@@ -16,12 +16,12 @@ describe('Enhanced Progress Tracking (Issue #7)', () => {
       expect(sourceFile).toContain('private tilesFromNetwork: number = 0;');
       expect(sourceFile).toContain('private lastProgressUpdate: number = 0;');
 
-      // Check for throttling logic
-      expect(sourceFile).toContain('if (now - this.lastProgressUpdate < 100) return;');
+      // Check for throttling logic (now in different format)
+      expect(sourceFile).toContain('if (now - this.lastProgressUpdate >= 100');
 
       // Check for refined total bytes calculation
       expect(sourceFile).toContain('refinedTotalBytes');
-      expect(sourceFile).toContain('estimatedBytesPerTile');
+      expect(sourceFile).toContain('avgBytesPerTile');
 
       // Check for tracking cache vs network tiles
       expect(sourceFile).toContain('this.tilesFromCache++');
@@ -110,9 +110,9 @@ describe('Enhanced Progress Tracking (Issue #7)', () => {
         'utf-8'
       );
 
-      // Check for throttling implementation (max 10 updates per second)
+      // Check for throttling implementation
       const hasThrottling = sourceFile.includes(
-        '// Throttle progress updates to avoid overwhelming the UI (max 10 updates per second)'
+        'if (now - this.lastProgressUpdate >= 100'
       );
       expect(hasThrottling).toBe(true);
     });
