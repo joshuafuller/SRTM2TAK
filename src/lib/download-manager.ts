@@ -30,6 +30,12 @@ export class DownloadManager {
   private currentSession: DownloadSession | null = null;
   private abortController: AbortController | null = null;
   private downloadStartTime: number = 0;
+  private cacheStats = {
+    hits: 0,
+    misses: 0,
+    errors: 0,
+    writeErrors: 0
+  };
   private bytesDownloaded: number = 0;
   private totalEstimatedBytes: number = 0;
   private tileBytesLoaded: Map<string, number> = new Map();
@@ -344,12 +350,16 @@ export class DownloadManager {
         const entry = await this.storage.get(tileId);
         if (entry && entry.data && entry.data.byteLength > 0) {
           data = entry.data;
+          this.cacheStats.hits++;
         }
-      } catch {
-        // ignore
+      } catch (error) {
+        console.debug(`Cache read error for tile ${tileId}:`, error);
+        this.cacheStats.errors++;
+        // Continue without cache for this tile
       }
     }
     if (!data) {
+      this.cacheStats.misses++;
       this.options.onTileStart?.(tileId);
       data = await this.downloadTile(tileId);
       if (data && data.byteLength > 0 && this.options.useCache !== false && this.storage.isInitialized()) {
@@ -362,8 +372,10 @@ export class DownloadManager {
             size: data.byteLength,
             compressed: true,
           });
-        } catch {
-          // ignore cache store issues
+        } catch (error) {
+          console.debug(`Cache write error for tile ${tileId}:`, error);
+          this.cacheStats.writeErrors++;
+          // Continue without caching this tile
         }
       }
     }
@@ -401,13 +413,17 @@ export class DownloadManager {
         const cached = await this.storage.get(tileId);
         if (cached) {
           tileData = cached.data;
+          this.cacheStats.hits++;
           if (this.currentSession) {
             // Treat cached tiles as completed, since they will be included in the ZIP
             this.currentSession = DownloadManifest.markTileCompleted(this.currentSession, tileId);
           }
+        } else {
+          this.cacheStats.misses++;
         }
       } catch (e) {
-        console.warn(`Cache error for ${tileId}, proceeding to download:`, e);
+        console.debug(`Cache read error for ${tileId}, proceeding to download:`, e);
+        this.cacheStats.errors++;
       }
     }
 
@@ -426,7 +442,8 @@ export class DownloadManager {
               compressed: true,
             });
           } catch (e) {
-            console.warn(`Failed to cache tile ${tileId}:`, e);
+            console.debug(`Failed to cache tile ${tileId}:`, e);
+            this.cacheStats.writeErrors++;
           }
         }
         if (this.currentSession) {
@@ -452,7 +469,8 @@ export class DownloadManager {
     const cached = new Set<string>();
     try {
       await this.initStorage();
-    } catch {
+    } catch (error) {
+      console.debug('Storage initialization error in getCachedTiles:', error);
       return cached;
     }
     if (!this.storage.isInitialized()) return cached;
@@ -463,8 +481,9 @@ export class DownloadManager {
         if (entry && entry.data && entry.size > 0) {
           cached.add(id);
         }
-      } catch {
-        // ignore
+      } catch (error) {
+        console.debug(`Cache check error for tile ${id}:`, error);
+        // Continue checking other tiles
       }
     }
     return cached;
@@ -526,10 +545,16 @@ export class DownloadManager {
    */
   getStatistics(): Record<string, unknown> | null {
     if (!this.currentSession) {
-      return null;
+      return {
+        cache: this.cacheStats
+      };
     }
-    
-    return DownloadManifest.getStatistics(this.currentSession);
+
+    const stats = DownloadManifest.getStatistics(this.currentSession);
+    return {
+      ...stats,
+      cache: this.cacheStats
+    };
   }
   
   /**
