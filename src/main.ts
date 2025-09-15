@@ -1626,7 +1626,7 @@ async function startDownload(): Promise<void> {
         .substring(0, 200)  // Limit length to prevent overflow
         .replace(/\(/g, '[')
         .replace(/\)/g, ']')
-        .replace(/[^a-zA-Z0-9\s\[\]_-]/g, '')  // Strict whitelist
+        .replace(/[^a-zA-Z0-9\s[\]_-]/g, '')  // Strict whitelist
         .replace(/\s+/g, '_')
         .replace(/_+/g, '_')
         .replace(/^[_-]+|[_-]+$/g, '')  // Trim special chars from start/end
