@@ -56,3 +56,4 @@ test-output.log
 # PWA
 sw.js
 workbox-*.js
+# Triggering deployment
