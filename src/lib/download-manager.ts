@@ -322,7 +322,7 @@ export class DownloadManager {
       const tileId = tileIds[index++];
 
       // Create self-referencing promise to avoid race condition
-      let promiseRef: Promise<WrappedResult>;
+      let promiseRef: Promise<WrappedResult> = null as any;
       promiseRef = (async () => {
         try {
           const result = await this.processUnifiedTile(tileId);
