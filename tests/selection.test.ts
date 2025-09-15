@@ -12,11 +12,13 @@ describe('Selection System', () => {
   let selectionStore: SelectionStore;
 
   beforeEach(() => {
+    // Create mock canvas that persists state
+    const canvasStyle = { cursor: '', touchAction: '' };
+    const canvas = { style: canvasStyle };
+
     // Create mock map
     map = {
-      getCanvas: vi.fn(() => ({
-        style: { cursor: '' }
-      })),
+      getCanvas: vi.fn(() => canvas),
       dragPan: {
         enable: vi.fn(),
         disable: vi.fn()
