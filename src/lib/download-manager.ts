@@ -250,54 +250,71 @@ export class DownloadManager {
   }
   
   /**
-   * Create async iterator for tiles
+   * Common concurrency pool manager for async iterators
    */
-  private async *createTileIterator(
-    tileIds: string[]
-  ): AsyncGenerator<{ id: string; data: ArrayBuffer }> {
-    const total = tileIds.length;
+  private async *manageConcurrentPool<T>(
+    items: string[],
+    processor: (item: string) => Promise<T | null>,
+    shouldYield: (result: T | null) => boolean
+  ): AsyncGenerator<T> {
+    const total = items.length;
     let completed = 0;
     // Validate and clamp concurrency to safe range
     const requestedConcurrency = this.options.concurrentDownloads ?? 3;
     const concurrency = Math.max(1, Math.min(10, requestedConcurrency));
 
-    const inFlight = new Set<Promise<{ id: string; data: ArrayBuffer } | null>>();
+    const inFlight = new Set<Promise<T | null>>();
     let index = 0;
 
     const launchNext = (): void => {
-      if (index >= tileIds.length) return;
-      const tileId = tileIds[index++];
-      const p = this.processTile(tileId)
+      if (index >= items.length) return;
+      const item = items[index++];
+      const p = processor(item)
         .catch((err) => {
-          console.error(`Failed to process tile ${tileId}:`, err);
+          console.error(`Failed to process item ${item}:`, err);
           return null;
         })
         .finally(() => {
           inFlight.delete(p);
-        }) as Promise<{ id: string; data: ArrayBuffer } | null>;
+        }) as Promise<T | null>;
       inFlight.add(p);
     };
 
-    while (inFlight.size < concurrency && index < tileIds.length) {
+    // Fill initial pool
+    while (inFlight.size < concurrency && index < items.length) {
       launchNext();
     }
 
+    // Process results
     while (inFlight.size > 0) {
       if (this.abortController?.signal.aborted) {
         throw new DOMException('Download cancelled', 'AbortError');
       }
       const result = await Promise.race(inFlight);
       // Keep pool full
-      while (inFlight.size < concurrency && index < tileIds.length) {
+      while (inFlight.size < concurrency && index < items.length) {
         launchNext();
       }
 
       completed++;
       this.updateProgress(completed, total);
-      if (result && result.data.byteLength > 0) {
-        yield result;
+      if (shouldYield(result)) {
+        yield result as T;
       }
     }
+  }
+
+  /**
+   * Create async iterator for tiles
+   */
+  private async *createTileIterator(
+    tileIds: string[]
+  ): AsyncGenerator<{ id: string; data: ArrayBuffer }> {
+    yield* this.manageConcurrentPool(
+      tileIds,
+      (tileId) => this.processTile(tileId),
+      (result) => result !== null && result.data.byteLength > 0
+    );
   }
 
   /**
@@ -306,57 +323,11 @@ export class DownloadManager {
   private async *createUnifiedIterator(
     tileIds: string[]
   ): AsyncGenerator<{ id: string; data: ArrayBuffer }> {
-    const total = tileIds.length;
-    let completed = 0;
-    // Validate and clamp concurrency to safe range
-    const requestedConcurrency = this.options.concurrentDownloads ?? 3;
-    const concurrency = Math.max(1, Math.min(10, requestedConcurrency));
-
-    type Result = { id: string; data: ArrayBuffer } | null;
-    type WrappedResult = { promise: Promise<WrappedResult>, result: Result };
-    const inFlight = new Set<Promise<WrappedResult>>();
-    let index = 0;
-
-    const launchNext = (): void => {
-      if (index >= tileIds.length) return;
-      const tileId = tileIds[index++];
-
-      // Create self-referencing promise to avoid race condition
-      let promiseRef: Promise<WrappedResult> = null as any;
-      promiseRef = (async () => {
-        try {
-          const result = await this.processUnifiedTile(tileId);
-          return { promise: promiseRef, result };
-        } catch (err) {
-          console.error(`Failed to process tile ${tileId}:`, err);
-          return { promise: promiseRef, result: null };
-        }
-      })();
-
-      inFlight.add(promiseRef);
-    };
-
-    while (inFlight.size < concurrency && index < tileIds.length) {
-      launchNext();
-    }
-
-    while (inFlight.size > 0) {
-      if (this.abortController?.signal.aborted) {
-        throw new DOMException('Download cancelled', 'AbortError');
-      }
-      const { promise, result } = await Promise.race(inFlight);
-      inFlight.delete(promise);
-
-      while (inFlight.size < concurrency && index < tileIds.length) {
-        launchNext();
-      }
-
-      completed++;
-      this.updateProgress(completed, total);
-      if (result && result.data.byteLength > 0) {
-        yield result;
-      }
-    }
+    yield* this.manageConcurrentPool(
+      tileIds,
+      (tileId) => this.processUnifiedTile(tileId),
+      (result) => result !== null && result.data.byteLength > 0
+    );
   }
 
   private async processUnifiedTile(tileId: string): Promise<{ id: string; data: ArrayBuffer }> {
