@@ -108,72 +108,8 @@ export class DownloadManager {
         const cachedOrder = tileIds.filter(id => cachedSet.has(id));
         const remaining = tileIds.filter(id => !cachedSet.has(id));
 
-        const combinedTwoPhase = async function* (this: DownloadManager): AsyncGenerator<{ id: string; data: ArrayBuffer }> {
-          // Phase A: yield cached tiles sequentially
-          for (const id of cachedOrder) {
-            if (this.abortController?.signal.aborted) {
-              throw new DOMException('Download cancelled', 'AbortError');
-            }
-            try {
-              const entry = await this.storage.get(id);
-              if (entry && entry.data && entry.data.byteLength > 0) {
-                const data = Decompressor.decompress(entry.data);
-                if (this.currentSession) {
-                  this.currentSession = DownloadManifest.markTileCompleted(this.currentSession, id);
-                }
-                this.options.onTileComplete?.(id, true);
-                yield { id, data };
-              } else {
-                // Fallback to network if cache missing unexpectedly
-                const net = await this.downloadTile(id);
-                if (net && net.byteLength > 0) {
-                  const data = Decompressor.decompress(net);
-                  if (this.currentSession) {
-                    this.currentSession = DownloadManifest.markTileCompleted(this.currentSession, id);
-                  }
-                  this.options.onTileComplete?.(id, true);
-                  yield { id, data };
-                } else {
-                  this.options.onTileComplete?.(id, false);
-                }
-              }
-            } catch {
-              // If any error, mark failed and continue
-              if (this.currentSession) this.currentSession = DownloadManifest.markTileFailed(this.currentSession, id);
-              this.options.onTileComplete?.(id, false);
-            }
-          }
-          // Phase B: yield remaining tiles sequentially (safe approach)
-          for (const id of remaining) {
-            if (this.abortController?.signal.aborted) {
-              throw new DOMException('Download cancelled', 'AbortError');
-            }
-            try {
-              this.options.onTileStart?.(id);
-              const buf = await this.downloadTile(id);
-              if (buf && buf.byteLength > 0) {
-                const data = Decompressor.decompress(buf);
-                if (this.currentSession) {
-                  this.currentSession = DownloadManifest.markTileCompleted(this.currentSession, id);
-                }
-                this.options.onTileComplete?.(id, true);
-                yield { id, data };
-              } else {
-                if (this.currentSession) {
-                  this.currentSession = DownloadManifest.markTileFailed(this.currentSession, id);
-                }
-                this.options.onTileComplete?.(id, false);
-              }
-            } catch (error) {
-              console.error(`Error downloading tile ${id}:`, error);
-              if (this.currentSession) {
-                this.currentSession = DownloadManifest.markTileFailed(this.currentSession, id);
-              }
-              this.options.onTileComplete?.(id, false);
-            }
-          }
-        }.bind(this);
-        tileIterator = combinedTwoPhase();
+        // Use the unified iterator that handles both cached and network tiles with proper concurrency
+        tileIterator = this.createUnifiedIterator(tileIds);
       } else {
         tileIterator = this.createTileIterator(tileIds);
       }
@@ -362,20 +298,21 @@ export class DownloadManager {
     const concurrency = Math.max(1, this.options.concurrentDownloads ?? 3);
 
     type Result = { id: string; data: ArrayBuffer } | null;
-    const inFlight = new Set<Promise<Result>>();
+    type WrappedResult = { promise: Promise<WrappedResult>, result: Result };
+    const inFlight = new Set<Promise<WrappedResult>>();
     let index = 0;
 
     const launchNext = (): void => {
       if (index >= tileIds.length) return;
       const tileId = tileIds[index++];
+      let promiseRef: Promise<WrappedResult>;
       const p = this.processUnifiedTile(tileId)
+        .then(result => ({ promise: promiseRef, result }))
         .catch((err) => {
           console.error(`Failed to process tile ${tileId}:`, err);
-          return null;
-        })
-        .finally(() => {
-          inFlight.delete(p);
-        }) as Promise<Result>;
+          return { promise: promiseRef, result: null };
+        }) as Promise<WrappedResult>;
+      promiseRef = p;
       inFlight.add(p);
     };
 
@@ -387,7 +324,9 @@ export class DownloadManager {
       if (this.abortController?.signal.aborted) {
         throw new DOMException('Download cancelled', 'AbortError');
       }
-      const result = await Promise.race(inFlight);
+      const { promise, result } = await Promise.race(inFlight);
+      inFlight.delete(promise);
+
       while (inFlight.size < concurrency && index < tileIds.length) {
         launchNext();
       }
