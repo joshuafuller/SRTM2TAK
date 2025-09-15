@@ -1604,17 +1604,36 @@ async function startDownload(): Promise<void> {
   
   // Get friendly name from selection store BEFORE starting download
   let filename = 'srtm_tiles';
-  
-  if (selectionState.friendlyDescription) {
-    // Clean the description for use as filename
-    // Remove special characters and replace spaces with underscores
-    filename = selectionState.friendlyDescription
-      .replace(/[^\w\s-]/g, '') // Remove special chars except spaces and hyphens
-      .replace(/\s+/g, '_')      // Replace spaces with underscores
-      .replace(/_+/g, '_')       // Remove duplicate underscores
-      .toLowerCase();
+
+  if (selectionState.friendlyDescription && selectionState.friendlyDescription.trim()) {
+    const description = selectionState.friendlyDescription.trim();
+
+    // Special handling for "N tiles" pattern (just a number and "tiles")
+    const simpleTilePattern = /^(\d+)\s+tiles?$/i;
+    const match = description.match(simpleTilePattern);
+
+    if (match) {
+      // For simple counts, prepend "srtm_" to make it clear what kind of tiles
+      filename = `srtm_${match[1]}_tiles`;
+    } else {
+      // For descriptions with area names and tile counts
+      // Clean the description for use as filename
+      filename = description
+        .replace(/\(/g, '[')           // Replace ( with [
+        .replace(/\)/g, ']')           // Replace ) with ]
+        .replace(/[^\w\s\[\]-]/g, '')  // Remove special chars except spaces, brackets, and hyphens
+        .replace(/\s+/g, '_')          // Replace spaces with underscores
+        .replace(/_+/g, '_')           // Remove duplicate underscores
+        .replace(/^_|_$/g, '')         // Trim underscores from start/end
+        .toLowerCase();
+
+      // Ensure we don't return empty or just numbers
+      if (!filename || /^\d+$/.test(filename)) {
+        filename = 'srtm_tiles';
+      }
+    }
   }
-  
+
   // Store the filename for use in handleDownloadComplete
   state.downloadFilename = `${filename}_${Date.now()}.zip`;
   
