@@ -4,7 +4,6 @@ on:
   push:
     branches:
       - main
-      - 001-srtm2tak-the-idea  # Also deploy from feature branch for now
   workflow_dispatch:
 
 permissions:
