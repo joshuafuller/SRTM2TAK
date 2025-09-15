@@ -25,7 +25,7 @@ describe('Concurrent Downloads', () => {
 
     // Mock fetch to track download timeline and simulate delays
     fetchSpy = vi.spyOn(global, 'fetch').mockImplementation(async (url: string | URL | Request) => {
-      const urlStr = url.toString();
+      const urlStr = typeof url === 'string' ? url : url instanceof URL ? url.toString() : url.url;
       const tileIdMatch = urlStr.match(/\/([NS]\d{2}[EW]\d{3})\.hgt\.gz$/);
       const tileId = tileIdMatch ? tileIdMatch[1] : 'unknown';
 
