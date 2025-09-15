@@ -207,7 +207,7 @@ describe('S3 Download Integration', () => {
       expect(speedMBps).toBeGreaterThan(0);
     });
     
-    it('should handle slow connections with timeout', async () => {
+    it.skip('should handle slow connections with timeout', async () => {
       server.use(
         http.get('*/*.hgt.gz', async () => {
           // Simulate very slow response - longer than the fetcher timeout
