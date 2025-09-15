@@ -1359,6 +1359,7 @@ function setupControls(): void {
   // Settings controls
   const showGridCheckbox = document.getElementById('show-grid') as HTMLInputElement;
   const showLabelsCheckbox = document.getElementById('show-labels') as HTMLInputElement;
+  const concurrentDownloadsSelect = document.getElementById('concurrent-downloads') as HTMLSelectElement;
   const useCacheCheckbox = document.getElementById('use-cache') as HTMLInputElement;
   const clearCacheButton = document.getElementById('clear-cache') as HTMLButtonElement;
 
@@ -1425,6 +1426,16 @@ function setupControls(): void {
       if (state.settings.showGrid) {
         drawTileGrid();
       }
+    });
+  }
+
+  if (concurrentDownloadsSelect) {
+    // Initialize from settings
+    concurrentDownloadsSelect.value = state.settings.concurrentDownloads.toString();
+    concurrentDownloadsSelect.addEventListener('change', () => {
+      state.settings.concurrentDownloads = parseInt(concurrentDownloadsSelect.value, 10);
+      saveSettings();
+      console.log('Updated concurrent downloads to:', state.settings.concurrentDownloads);
     });
   }
 
@@ -1593,17 +1604,46 @@ async function startDownload(): Promise<void> {
   
   // Get friendly name from selection store BEFORE starting download
   let filename = 'srtm_tiles';
-  
-  if (selectionState.friendlyDescription) {
-    // Clean the description for use as filename
-    // Remove special characters and replace spaces with underscores
-    filename = selectionState.friendlyDescription
-      .replace(/[^\w\s-]/g, '') // Remove special chars except spaces and hyphens
-      .replace(/\s+/g, '_')      // Replace spaces with underscores
-      .replace(/_+/g, '_')       // Remove duplicate underscores
-      .toLowerCase();
+
+  if (selectionState.friendlyDescription && selectionState.friendlyDescription.trim()) {
+    const description = selectionState.friendlyDescription.trim();
+
+    // Special handling for "N tiles" pattern (just a number and "tiles")
+    const simpleTilePattern = /^(\d+)\s+tiles?$/i;
+    const match = description.match(simpleTilePattern);
+
+    if (match) {
+      // For simple counts, prepend "srtm_" to make it clear what kind of tiles
+      // Validate the number is reasonable
+      const tileCount = parseInt(match[1], 10);
+      if (tileCount > 0 && tileCount <= 10000) {
+        filename = `srtm_${tileCount}_tiles`;
+      }
+    } else {
+      // Security: Use strict whitelist approach for filename sanitization
+      // Only allow alphanumeric, spaces, brackets, hyphens, and underscores
+      filename = description
+        .substring(0, 200)  // Limit length to prevent overflow
+        .replace(/\(/g, '[')
+        .replace(/\)/g, ']')
+        .replace(/[^a-zA-Z0-9\s\[\]_-]/g, '')  // Strict whitelist
+        .replace(/\s+/g, '_')
+        .replace(/_+/g, '_')
+        .replace(/^[_-]+|[_-]+$/g, '')  // Trim special chars from start/end
+        .toLowerCase();
+
+      // Security: Additional validation
+      if (!filename || filename.length === 0 || /^[\d_-]+$/.test(filename)) {
+        filename = 'srtm_tiles';
+      }
+
+      // Security: Prevent directory traversal patterns
+      if (filename.includes('..') || filename.includes('/') || filename.includes('\\')) {
+        filename = 'srtm_tiles';
+      }
+    }
   }
-  
+
   // Store the filename for use in handleDownloadComplete
   state.downloadFilename = `${filename}_${Date.now()}.zip`;
   
@@ -2009,6 +2049,8 @@ function initialize(): void {
   if (showGridCheckbox) showGridCheckbox.checked = state.settings.showGrid;
   const showLabelsCheckbox = document.getElementById('show-labels') as HTMLInputElement | null;
   if (showLabelsCheckbox) showLabelsCheckbox.checked = state.settings.showLabels;
+  const concurrentDownloadsSelect = document.getElementById('concurrent-downloads') as HTMLSelectElement | null;
+  if (concurrentDownloadsSelect) concurrentDownloadsSelect.value = state.settings.concurrentDownloads.toString();
   const useCacheCheckbox = document.getElementById('use-cache') as HTMLInputElement | null;
   if (useCacheCheckbox) useCacheCheckbox.checked = state.settings.useCache;
 
