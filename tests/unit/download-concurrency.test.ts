@@ -18,18 +18,18 @@ const h = vi.hoisted(() => {
 
 // Apply mocks at module level
 vi.mock('@/lib/tile-fetcher', () => ({
-  TileFetcher: vi.fn().mockImplementation(() => ({
+  TileFetcher: vi.fn().mockImplementation(function () { return {
     fetch: h.fetchMock
-  }))
+  }; })
 }));
 
 vi.mock('@/lib/storage-manager', () => ({
-  StorageManager: vi.fn().mockImplementation(() => ({
+  StorageManager: vi.fn().mockImplementation(function () { return {
     init: vi.fn().mockResolvedValue(undefined),
     isInitialized: vi.fn().mockReturnValue(false),
     get: vi.fn().mockResolvedValue(null),
     store: vi.fn().mockResolvedValue(undefined),
-  }))
+  }; })
 }));
 
 vi.mock('@/lib/decompressor', () => ({
@@ -37,7 +37,7 @@ vi.mock('@/lib/decompressor', () => ({
 }));
 
 vi.mock('@/lib/stream-zip', () => ({
-  StreamZip: vi.fn().mockImplementation(() => ({
+  StreamZip: vi.fn().mockImplementation(function () { return {
     createZip: vi.fn().mockImplementation(async (tiles: AsyncIterable<any>) => {
       // Consume the async iterable
       for await (const _ of tiles) {
@@ -45,7 +45,7 @@ vi.mock('@/lib/stream-zip', () => ({
       }
       return new Blob([new Uint8Array([1, 2, 3])], { type: 'application/zip' });
     })
-  }))
+  }; })
 }));
 
 describe('DownloadManager concurrency', () => {

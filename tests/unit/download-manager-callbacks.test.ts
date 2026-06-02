@@ -12,15 +12,15 @@ const h = vi.hoisted(() => ({
 }));
 
 vi.mock('@/lib/tile-fetcher', () => ({
-  TileFetcher: vi.fn().mockImplementation(() => ({ fetch: h.fetchMock }))
+  TileFetcher: vi.fn().mockImplementation(function () { return { fetch: h.fetchMock }; })
 }));
 
 vi.mock('@/lib/stream-zip', () => ({
-  StreamZip: vi.fn().mockImplementation(() => ({ createZip: (...args:any[]) => h.createZipMock(...args) }))
+  StreamZip: vi.fn().mockImplementation(function () { return { createZip: (...args:any[]) => h.createZipMock(...args) }; })
 }));
 
 vi.mock('@/lib/storage-manager', () => ({
-  StorageManager: vi.fn().mockImplementation(() => h.storageFactory())
+  StorageManager: vi.fn().mockImplementation(function () { return h.storageFactory(); })
 }));
 
 vi.mock('@/lib/decompressor', () => ({
@@ -35,12 +35,12 @@ describe('DownloadManager callbacks over many tiles', () => {
     // Mock fetcher to resolve all tiles
     h.fetchMock.mockImplementation(async () => new ArrayBuffer(100));
     vi.mock('@/lib/tile-fetcher', () => ({
-      TileFetcher: vi.fn().mockImplementation(() => ({
+      TileFetcher: vi.fn().mockImplementation(function () { return {
         fetch: vi.fn().mockImplementation(async () => {
           await new Promise((r) => setTimeout(r, Math.random() * 3));
           return new ArrayBuffer(100);
         })
-      }))
+      }; })
     }));
 
     // Disable cache
