@@ -5,7 +5,7 @@ describe('DownloadManager.getCachedTiles', () => {
   it('returns a set of cached tile IDs', async () => {
     // Mock StorageManager to simulate cache hits for two tiles
     vi.mock('@/lib/storage-manager', () => ({
-      StorageManager: vi.fn().mockImplementation(() => ({
+      StorageManager: vi.fn().mockImplementation(function () { return {
         init: vi.fn().mockResolvedValue(undefined),
         isInitialized: vi.fn().mockReturnValue(true),
         get: vi.fn().mockImplementation(async (id: string) => {
@@ -14,7 +14,7 @@ describe('DownloadManager.getCachedTiles', () => {
           }
           return null;
         }),
-      }))
+      }; })
     }));
 
     const mgr = new DownloadManager({ useCache: true });
