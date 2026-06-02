@@ -27,7 +27,7 @@ vi.mock('@/lib/decompressor', () => ({
 }));
 
 vi.mock('@/lib/stream-zip', () => ({
-  StreamZip: vi.fn().mockImplementation(() => ({
+  StreamZip: vi.fn().mockImplementation(function () { return {
     createZip: vi.fn().mockImplementation(async (tiles: AsyncIterable<any>) => {
       // Consume the async iterable
       let count = 0;
@@ -37,7 +37,7 @@ vi.mock('@/lib/stream-zip', () => ({
       // Return a mock Blob
       return new Blob([new Uint8Array([80, 75, 3, 4])], { type: 'application/zip' });
     })
-  }))
+  }; })
 }));
 
 describe('DownloadManager', () => {
@@ -48,22 +48,22 @@ describe('DownloadManager', () => {
     
     // Mock TileFetcher
     const MockedTileFetcher = TileFetcher as any;
-    MockedTileFetcher.mockImplementation(() => ({
+    MockedTileFetcher.mockImplementation(function () { return {
       fetch: vi.fn().mockImplementation((tileId: string) => {
         // Return mock compressed data
         const data = new ArrayBuffer(1000000); // 1MB compressed
         return Promise.resolve(data);
       })
-    }));
+    }; });
     
     // Mock StorageManager  
     const MockedStorageManager = StorageManager as any;
-    MockedStorageManager.mockImplementation(() => ({
+    MockedStorageManager.mockImplementation(function () { return {
       init: vi.fn().mockResolvedValue(undefined),
       isInitialized: vi.fn().mockReturnValue(false), // Disable caching for test
       get: vi.fn().mockResolvedValue(null),
       store: vi.fn().mockResolvedValue(undefined)
-    }));
+    }; });
     
     manager = new DownloadManager({
       useCache: false
@@ -84,14 +84,14 @@ describe('DownloadManager', () => {
   it('should handle ocean tiles (null data)', async () => {
     // Mock fetcher to return null for ocean
     const MockedTileFetcher = TileFetcher as any;
-    MockedTileFetcher.mockImplementation(() => ({
+    MockedTileFetcher.mockImplementation(function () { return {
       fetch: vi.fn().mockImplementation((tileId: string) => {
         if (tileId === 'N37W123') {
           return Promise.resolve(null); // Ocean tile
         }
         return Promise.resolve(new ArrayBuffer(1000000));
       })
-    }));
+    }; });
     
     const manager2 = new DownloadManager({ useCache: false });
     const tileIds = ['N39W098', 'N37W123']; // One land, one ocean

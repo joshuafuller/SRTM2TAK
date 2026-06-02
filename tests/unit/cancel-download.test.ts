@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 
 // Hoist mocks to module level
 vi.mock('@/lib/tile-fetcher', () => ({
-  TileFetcher: vi.fn().mockImplementation(() => ({
+  TileFetcher: vi.fn().mockImplementation(function () { return {
     fetch: vi.fn().mockImplementation(async (_tileId: string, signal?: AbortSignal) => {
       // Wait until aborted or timeout
       await new Promise<void>((resolve, reject) => {
@@ -18,16 +18,16 @@ vi.mock('@/lib/tile-fetcher', () => ({
       });
       return new ArrayBuffer(1024);
     })
-  }))
+  }; })
 }));
 
 vi.mock('@/lib/storage-manager', () => ({
-  StorageManager: vi.fn().mockImplementation(() => ({
+  StorageManager: vi.fn().mockImplementation(function () { return {
     init: vi.fn().mockResolvedValue(undefined),
     isInitialized: vi.fn().mockReturnValue(false),
     get: vi.fn().mockResolvedValue(null),
     store: vi.fn().mockResolvedValue(undefined),
-  }))
+  }; })
 }));
 
 vi.mock('@/lib/decompressor', () => ({
@@ -35,11 +35,11 @@ vi.mock('@/lib/decompressor', () => ({
 }));
 
 vi.mock('@/lib/stream-zip', () => ({
-  StreamZip: vi.fn().mockImplementation(() => ({
+  StreamZip: vi.fn().mockImplementation(function () { return {
     createZip: vi.fn().mockImplementation(async () => {
       throw new Error('Cancelled');
     })
-  }))
+  }; })
 }));
 
 describe('DownloadManager cancellation', () => {

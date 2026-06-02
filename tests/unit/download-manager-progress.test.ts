@@ -4,7 +4,7 @@ import { DownloadManager } from '@/lib/download-manager';
 // Mock TileFetcher to emit network progress and return buffers
 vi.mock('@/lib/tile-fetcher', () => {
   return {
-    TileFetcher: vi.fn().mockImplementation((opts: any) => {
+    TileFetcher: vi.fn().mockImplementation(function (opts: any) {
       return {
         fetch: vi.fn().mockImplementation(async (tileId: string) => {
           const total = 1_000_000; // 1MB compressed
@@ -27,12 +27,12 @@ vi.mock('@/lib/tile-fetcher', () => {
 
 // Mock StorageManager to disable cache effects
 vi.mock('@/lib/storage-manager', () => ({
-  StorageManager: vi.fn().mockImplementation(() => ({
+  StorageManager: vi.fn().mockImplementation(function () { return {
     init: vi.fn().mockResolvedValue(undefined),
     isInitialized: vi.fn().mockReturnValue(false),
     get: vi.fn().mockResolvedValue(null),
     store: vi.fn().mockResolvedValue(undefined),
-  }))
+  }; })
 }));
 
 // Mock Decompressor to produce SRTM-sized buffer
@@ -46,7 +46,7 @@ vi.mock('@/lib/decompressor', () => ({
 
 // Mock StreamZip to create a zip
 vi.mock('@/lib/stream-zip', () => ({
-  StreamZip: vi.fn().mockImplementation(() => ({
+  StreamZip: vi.fn().mockImplementation(function () { return {
     createZip: vi.fn().mockImplementation(async (tiles: AsyncIterable<any>) => {
       // Consume the async iterable
       let totalSize = 0;
@@ -56,7 +56,7 @@ vi.mock('@/lib/stream-zip', () => ({
       // Return a mock Blob
       return new Blob([new Uint8Array(totalSize)], { type: 'application/zip' });
     })
-  }))
+  }; })
 }));
 
 describe('DownloadManager progress accounting', () => {
