@@ -27,7 +27,7 @@
     "workbox-routing": "^7.0.0"
   },
   "devDependencies": {
-    "@playwright/test": "^1.41.1",
+    "@playwright/test": "^1.61.0",
     "@testing-library/jest-dom": "^6.8.0",
     "@types/node": "^24.3.3",
     "@types/pako": "^2.0.3",
@@ -40,10 +40,10 @@
     "jsdom": "^24.0.0",
     "jszip": "^3.10.1",
     "msw": "^2.1.4",
-    "playwright": "^1.41.1",
+    "playwright": "^1.61.0",
     "prettier": "^3.2.4",
     "typescript": "^5.3.3",
-    "vite": "^7.1.5",
+    "vite": "^7.3.5",
     "vite-plugin-pwa": "^1.0.3",
     "vitest": "^4.1.8"
   },
