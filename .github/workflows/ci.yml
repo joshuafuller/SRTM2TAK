@@ -102,3 +102,28 @@ jobs:
     - name: Deploy to GitHub Pages
       id: deployment
       uses: actions/deploy-pages@v4
+
+  # Auto-merge Dependabot patch & minor updates once CI is green.
+  # Gated purely by `needs: [test, e2e]` — this job is skipped if either fails,
+  # so CI is the merge gate (no branch protection required). Major bumps are
+  # never auto-merged: they fall through the version-type guard for manual review.
+  dependabot-auto-merge:
+    needs: [test, e2e]
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request' && github.actor == 'dependabot[bot]'
+
+    permissions:
+      contents: write
+      pull-requests: write
+
+    steps:
+    - name: Fetch Dependabot metadata
+      id: meta
+      uses: dependabot/fetch-metadata@v2
+
+    - name: Merge patch & minor updates
+      if: steps.meta.outputs.update-type == 'version-update:semver-patch' || steps.meta.outputs.update-type == 'version-update:semver-minor'
+      run: gh pr merge --merge "$PR_URL"
+      env:
+        PR_URL: ${{ github.event.pull_request.html_url }}
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
