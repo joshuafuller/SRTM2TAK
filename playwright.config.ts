@@ -37,8 +37,12 @@ export default defineConfig({
       ],
 
   webServer: {
-    command: 'npm run dev',
-    url: 'http://127.0.0.1:5173',
+    // Bind vite explicitly to IPv4 127.0.0.1: on CI runners `localhost` can resolve
+    // to IPv6 (::1) while Playwright probes IPv4, so the readiness check never
+    // succeeds and the server "times out". --strictPort keeps the port deterministic.
+    command: 'npm run dev -- --host 127.0.0.1 --strictPort',
+    // Probe the real app path (base is /SRTM2TAK/); the root only 302-redirects.
+    url: 'http://127.0.0.1:5173/SRTM2TAK/',
     reuseExistingServer: !process.env.CI,
     timeout: 120_000,
   },
