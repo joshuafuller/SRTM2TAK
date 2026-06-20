@@ -13,6 +13,7 @@ import { buildCachedGeoJSON } from './lib/cached-overlay';
 import { computeServiceWorkerUrl } from './lib/sw';
 import { SelectionStore } from './lib/selection-system';
 import { SelectionUI } from './lib/selection-ui';
+import { showToast, showZoomMessage, hideZoomMessage } from './ui/notices';
 
 // Application state
 interface AppState {
@@ -71,35 +72,6 @@ if (typeof window !== 'undefined') {
 }
 
 /**
- * Show zoom message when zoom is too low for tile selection
- */
-function showZoomMessage(): void {
-  const existingAlert = document.querySelector('.zoom-alert');
-  if (existingAlert) return; // Already showing
-  
-  const alert = document.createElement('div');
-  alert.className = 'zoom-alert';
-  alert.innerHTML = `
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-      <circle cx="11" cy="11" r="8"></circle>
-      <path d="m21 21-4.35-4.35"></path>
-      <path d="M11 8v6M8 11h6"></path>
-    </svg>
-    <span>Zoom in to select tiles (zoom level 5+)</span>
-    <button onclick="this.parentElement.remove()">×</button>
-  `;
-  document.body.appendChild(alert);
-}
-
-/**
- * Hide zoom message
- */
-function hideZoomMessage(): void {
-  const alert = document.querySelector('.zoom-alert');
-  if (alert) alert.remove();
-}
-
-/**
  * Handle tile selection with proper feedback
  */
 function handleTileSelection(tileId: string): void {
@@ -134,25 +106,6 @@ function handleTileSelection(tileId: string): void {
   
   // Show toast notification
   showToast(`Updated tile selection ${tileId}`);
-}
-
-/**
- * Show toast notification (UX best practice)
- */
-function showToast(message: string, duration: number = 2000): void {
-  const toast = document.createElement('div');
-  toast.className = 'toast-notification';
-  toast.textContent = message;
-  document.body.appendChild(toast);
-  
-  // Animate in
-  setTimeout(() => toast.classList.add('show'), 10);
-  
-  // Remove after duration
-  setTimeout(() => {
-    toast.classList.remove('show');
-    setTimeout(() => toast.remove(), 300);
-  }, duration);
 }
 
 /**
