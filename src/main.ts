@@ -14,6 +14,7 @@ import { computeServiceWorkerUrl } from './lib/sw';
 import { SelectionStore } from './lib/selection-system';
 import { SelectionUI } from './lib/selection-ui';
 import { showToast, showZoomMessage, hideZoomMessage } from './ui/notices';
+import { showProgressOverlay, hideProgressOverlay, updateProgressDisplay } from './ui/progress-overlay';
 
 // Application state
 interface AppState {
@@ -1601,7 +1602,7 @@ async function startDownload(): Promise<void> {
   state.downloadFilename = `${filename}_${Date.now()}.zip`;
   
   // Show progress overlay
-  showProgressOverlay();
+  showProgressOverlay(state.selectedTiles.size);
   state.isDownloading = true;
   state.downloadCancelled = false;  // Reset cancel flag
   // Reset tile status markers
@@ -1685,77 +1686,6 @@ async function startDownload(): Promise<void> {
     }
     console.error('Download failed:', error);
     handleDownloadError(error as Error);
-  }
-}
-
-/**
- * Show progress overlay
- */
-function showProgressOverlay(): void {
-  const overlay = document.getElementById('progress-overlay');
-  if (overlay) {
-    overlay.style.display = 'flex';
-  }
-  
-  // Reset progress display
-  updateProgressDisplay({
-    current: 0,
-    total: state.selectedTiles.size,
-    percent: 0,
-    bytesDownloaded: 0,
-    bytesTotal: 0,
-    speed: 0,
-    timeElapsed: 0,
-    timeRemaining: 0,
-  });
-}
-
-/**
- * Hide progress overlay
- */
-function hideProgressOverlay(): void {
-  const overlay = document.getElementById('progress-overlay');
-  if (overlay) {
-    overlay.style.display = 'none';
-  }
-}
-
-/**
- * Update progress display
- */
-function updateProgressDisplay(progress: any): void {
-  // Update progress text
-  const currentElement = document.getElementById('progress-current');
-  const totalElement = document.getElementById('progress-total');
-  if (currentElement && totalElement) {
-    currentElement.textContent = progress.current.toString();
-    totalElement.textContent = progress.total.toString();
-  }
-  
-  // Update progress bar
-  const progressBar = document.querySelector('.progress-fill') as HTMLElement;
-  if (progressBar) {
-    progressBar.style.width = `${progress.percent}%`;
-  }
-  
-  // Update speed
-  const speedElement = document.getElementById('download-speed');
-  if (speedElement) {
-    const speedMBps = (progress.speed / (1024 * 1024)).toFixed(1);
-    speedElement.textContent = `${speedMBps} MB/s`;
-  }
-  
-  // Update time remaining
-  const timeElement = document.getElementById('time-remaining');
-  if (timeElement) {
-    if (progress.timeRemaining > 0) {
-      const seconds = Math.floor(progress.timeRemaining / 1000);
-      const minutes = Math.floor(seconds / 60);
-      const remainingSeconds = seconds % 60;
-      timeElement.textContent = `${minutes}:${remainingSeconds.toString().padStart(2, '0')}`;
-    } else {
-      timeElement.textContent = '--:--';
-    }
   }
 }
 
