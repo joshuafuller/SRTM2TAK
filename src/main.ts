@@ -10,9 +10,13 @@ import { StorageManager } from './lib/storage-manager';
 import { notifications } from './lib/notification-manager';
 import { estimateFileSizes, formatBytes, latLonToTileId } from './lib/tile-utils';
 import { buildCachedGeoJSON } from './lib/cached-overlay';
-import { computeServiceWorkerUrl } from './lib/sw';
 import { SelectionStore } from './lib/selection-system';
 import { SelectionUI } from './lib/selection-ui';
+import { showToast, showZoomMessage, hideZoomMessage } from './ui/notices';
+import { showProgressOverlay, hideProgressOverlay, updateProgressDisplay } from './ui/progress-overlay';
+import { fixBrokenIcons } from './ui/icons';
+import { type AppSettings, saveSettings, loadSettings } from './app/settings';
+import { registerServiceWorker, setupOfflineDetection } from './app/pwa';
 
 // Application state
 interface AppState {
@@ -32,12 +36,7 @@ interface AppState {
   downloadFilename: string | null; // Store filename for current download
   selectionStore: SelectionStore;
   selectionUI: SelectionUI | null;
-  settings: {
-    showGrid: boolean;
-    showLabels: boolean;
-    concurrentDownloads: number;
-    useCache: boolean;
-  };
+  settings: AppSettings;
 }
 
 const state: AppState = {
@@ -68,35 +67,6 @@ const state: AppState = {
 // Expose state to window for debugging
 if (typeof window !== 'undefined') {
   (window as any).appState = state;
-}
-
-/**
- * Show zoom message when zoom is too low for tile selection
- */
-function showZoomMessage(): void {
-  const existingAlert = document.querySelector('.zoom-alert');
-  if (existingAlert) return; // Already showing
-  
-  const alert = document.createElement('div');
-  alert.className = 'zoom-alert';
-  alert.innerHTML = `
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-      <circle cx="11" cy="11" r="8"></circle>
-      <path d="m21 21-4.35-4.35"></path>
-      <path d="M11 8v6M8 11h6"></path>
-    </svg>
-    <span>Zoom in to select tiles (zoom level 5+)</span>
-    <button onclick="this.parentElement.remove()">×</button>
-  `;
-  document.body.appendChild(alert);
-}
-
-/**
- * Hide zoom message
- */
-function hideZoomMessage(): void {
-  const alert = document.querySelector('.zoom-alert');
-  if (alert) alert.remove();
 }
 
 /**
@@ -134,25 +104,6 @@ function handleTileSelection(tileId: string): void {
   
   // Show toast notification
   showToast(`Updated tile selection ${tileId}`);
-}
-
-/**
- * Show toast notification (UX best practice)
- */
-function showToast(message: string, duration: number = 2000): void {
-  const toast = document.createElement('div');
-  toast.className = 'toast-notification';
-  toast.textContent = message;
-  document.body.appendChild(toast);
-  
-  // Animate in
-  setTimeout(() => toast.classList.add('show'), 10);
-  
-  // Remove after duration
-  setTimeout(() => {
-    toast.classList.remove('show');
-    setTimeout(() => toast.remove(), 300);
-  }, duration);
 }
 
 /**
@@ -1407,7 +1358,7 @@ function setupControls(): void {
   if (showGridCheckbox) {
     showGridCheckbox.addEventListener('change', () => {
       state.settings.showGrid = showGridCheckbox.checked;
-      saveSettings();
+      saveSettings(state.settings);
       if (state.settings.showGrid) {
         drawTileGrid();
       } else if (state.map) {
@@ -1422,7 +1373,7 @@ function setupControls(): void {
   if (showLabelsCheckbox) {
     showLabelsCheckbox.addEventListener('change', () => {
       state.settings.showLabels = showLabelsCheckbox.checked;
-      saveSettings();
+      saveSettings(state.settings);
       if (state.settings.showGrid) {
         drawTileGrid();
       }
@@ -1434,7 +1385,7 @@ function setupControls(): void {
     concurrentDownloadsSelect.value = state.settings.concurrentDownloads.toString();
     concurrentDownloadsSelect.addEventListener('change', () => {
       state.settings.concurrentDownloads = parseInt(concurrentDownloadsSelect.value, 10);
-      saveSettings();
+      saveSettings(state.settings);
       console.log('Updated concurrent downloads to:', state.settings.concurrentDownloads);
     });
   }
@@ -1444,7 +1395,7 @@ function setupControls(): void {
     useCacheCheckbox.checked = state.settings.useCache;
     useCacheCheckbox.addEventListener('change', () => {
       state.settings.useCache = useCacheCheckbox.checked;
-      saveSettings();
+      saveSettings(state.settings);
       // Refresh cache overlay info
       void refreshCachedTiles();
     });
@@ -1519,24 +1470,6 @@ function setupControls(): void {
       }
     });
   }
-}
-
-function saveSettings(): void {
-  try {
-    localStorage.setItem('srtm2tak_settings', JSON.stringify(state.settings));
-  } catch {}
-}
-
-function loadSettings(): void {
-  try {
-    const raw = localStorage.getItem('srtm2tak_settings');
-    if (!raw) return;
-    const s = JSON.parse(raw);
-    state.settings.showGrid = Boolean(s.showGrid ?? state.settings.showGrid);
-    state.settings.showLabels = Boolean(s.showLabels ?? state.settings.showLabels);
-    state.settings.concurrentDownloads = Number(s.concurrentDownloads ?? state.settings.concurrentDownloads);
-    state.settings.useCache = Boolean(s.useCache ?? state.settings.useCache);
-  } catch {}
 }
 
 async function updateStorageInfo(): Promise<void> {
@@ -1648,7 +1581,7 @@ async function startDownload(): Promise<void> {
   state.downloadFilename = `${filename}_${Date.now()}.zip`;
   
   // Show progress overlay
-  showProgressOverlay();
+  showProgressOverlay(state.selectedTiles.size);
   state.isDownloading = true;
   state.downloadCancelled = false;  // Reset cancel flag
   // Reset tile status markers
@@ -1732,77 +1665,6 @@ async function startDownload(): Promise<void> {
     }
     console.error('Download failed:', error);
     handleDownloadError(error as Error);
-  }
-}
-
-/**
- * Show progress overlay
- */
-function showProgressOverlay(): void {
-  const overlay = document.getElementById('progress-overlay');
-  if (overlay) {
-    overlay.style.display = 'flex';
-  }
-  
-  // Reset progress display
-  updateProgressDisplay({
-    current: 0,
-    total: state.selectedTiles.size,
-    percent: 0,
-    bytesDownloaded: 0,
-    bytesTotal: 0,
-    speed: 0,
-    timeElapsed: 0,
-    timeRemaining: 0,
-  });
-}
-
-/**
- * Hide progress overlay
- */
-function hideProgressOverlay(): void {
-  const overlay = document.getElementById('progress-overlay');
-  if (overlay) {
-    overlay.style.display = 'none';
-  }
-}
-
-/**
- * Update progress display
- */
-function updateProgressDisplay(progress: any): void {
-  // Update progress text
-  const currentElement = document.getElementById('progress-current');
-  const totalElement = document.getElementById('progress-total');
-  if (currentElement && totalElement) {
-    currentElement.textContent = progress.current.toString();
-    totalElement.textContent = progress.total.toString();
-  }
-  
-  // Update progress bar
-  const progressBar = document.querySelector('.progress-fill') as HTMLElement;
-  if (progressBar) {
-    progressBar.style.width = `${progress.percent}%`;
-  }
-  
-  // Update speed
-  const speedElement = document.getElementById('download-speed');
-  if (speedElement) {
-    const speedMBps = (progress.speed / (1024 * 1024)).toFixed(1);
-    speedElement.textContent = `${speedMBps} MB/s`;
-  }
-  
-  // Update time remaining
-  const timeElement = document.getElementById('time-remaining');
-  if (timeElement) {
-    if (progress.timeRemaining > 0) {
-      const seconds = Math.floor(progress.timeRemaining / 1000);
-      const minutes = Math.floor(seconds / 60);
-      const remainingSeconds = seconds % 60;
-      timeElement.textContent = `${minutes}:${remainingSeconds.toString().padStart(2, '0')}`;
-    } else {
-      timeElement.textContent = '--:--';
-    }
   }
 }
 
@@ -1903,128 +1765,11 @@ function handleDownloadError(error: Error): void {
 }
 
 /**
- * Fix broken SVG icons with proper, intuitive designs
- */
-function fixBrokenIcons(): void {
-  // Fix all the malformed/empty SVG icons with proper designs
-  
-  // Selection box icon (intuitive area selection with corner handles)
-  const drawBtn = document.querySelector('#draw-rectangle svg');
-  if (drawBtn) {
-    drawBtn.setAttribute('fill', 'none');
-    drawBtn.setAttribute('stroke', 'currentColor');
-    drawBtn.innerHTML = `
-      <!-- Dashed selection rectangle -->
-      <rect x="5" y="7" width="14" height="10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-dasharray="3,2" opacity="0.8"/>
-      <!-- Corner handles for clarity -->
-      <rect x="3" y="5" width="4" height="4" fill="currentColor" rx="0.5"/>
-      <rect x="17" y="5" width="4" height="4" fill="currentColor" rx="0.5"/>
-      <rect x="3" y="15" width="4" height="4" fill="currentColor" rx="0.5"/>
-      <rect x="17" y="15" width="4" height="4" fill="currentColor" rx="0.5"/>
-    `;
-  }
-  
-  // Clear/trash icon
-  const clearBtn = document.querySelector('#clear-selection svg');
-  if (clearBtn) {
-    clearBtn.setAttribute('fill', 'none');
-    clearBtn.setAttribute('stroke', 'currentColor');
-    clearBtn.innerHTML = `
-      <path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2m3 0v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6" stroke-width="2"/>
-      <path d="M10 11v6M14 11v6" stroke-width="2" stroke-linecap="round"/>
-    `;
-  }
-  
-  // Info circle icon
-  const infoBtn = document.querySelector('#toggle-info svg');
-  if (infoBtn) {
-    infoBtn.setAttribute('fill', 'none');
-    infoBtn.setAttribute('stroke', 'currentColor');
-    infoBtn.innerHTML = `
-      <circle cx="12" cy="12" r="10" stroke-width="2"/>
-      <path d="M12 16v-4M12 8h.01" stroke-width="2" stroke-linecap="round"/>
-    `;
-  }
-  
-  // Zoom in (magnifying glass with +)
-  const zoomInBtn = document.querySelector('#zoom-in svg');
-  if (zoomInBtn) {
-    zoomInBtn.setAttribute('fill', 'none');
-    zoomInBtn.setAttribute('stroke', 'currentColor');
-    zoomInBtn.innerHTML = `
-      <circle cx="11" cy="11" r="8" stroke-width="2"/>
-      <path d="M21 21l-4.35-4.35M11 8v6M8 11h6" stroke-width="2" stroke-linecap="round"/>
-    `;
-  }
-  
-  // Zoom out (magnifying glass with -)
-  const zoomOutBtn = document.querySelector('#zoom-out svg');
-  if (zoomOutBtn) {
-    zoomOutBtn.setAttribute('fill', 'none');
-    zoomOutBtn.setAttribute('stroke', 'currentColor');
-    zoomOutBtn.innerHTML = `
-      <circle cx="11" cy="11" r="8" stroke-width="2"/>
-      <path d="M21 21l-4.35-4.35M8 11h6" stroke-width="2" stroke-linecap="round"/>
-    `;
-  }
-  
-  // Fit to selection (expand corners)
-  const fitBtn = document.querySelector('#fit-bounds svg');
-  if (fitBtn) {
-    fitBtn.setAttribute('fill', 'none');
-    fitBtn.setAttribute('stroke', 'currentColor');
-    fitBtn.innerHTML = `
-      <path d="M8 3H5a2 2 0 00-2 2v3m18 0V5a2 2 0 00-2-2h-3m0 18h3a2 2 0 002-2v-3M3 16v3a2 2 0 002 2h3" stroke-width="2" stroke-linecap="round"/>
-    `;
-  }
-  
-  // Download icon (arrow down to tray)
-  const downloadBtn = document.querySelector('#download-tiles svg');
-  if (downloadBtn) {
-    downloadBtn.setAttribute('fill', 'none');
-    downloadBtn.setAttribute('stroke', 'currentColor');
-    downloadBtn.innerHTML = `
-      <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3" stroke-width="2" stroke-linecap="round"/>
-    `;
-  }
-  
-  // Menu hamburger icon
-  const menuBtn = document.querySelector('#menu-toggle svg');
-  if (menuBtn) {
-    menuBtn.setAttribute('fill', 'none');
-    menuBtn.setAttribute('stroke', 'currentColor');
-    menuBtn.innerHTML = `
-      <path d="M3 12h18M3 6h18M3 18h18" stroke-width="2" stroke-linecap="round"/>
-    `;
-  }
-  
-  // Improve tooltips
-  const betterTooltips = {
-    'draw-rectangle': 'Draw selection box (click and drag)',
-    'clear-selection': 'Clear all selections',
-    'toggle-info': 'Toggle selection panel',
-    'zoom-in': 'Zoom in',
-    'zoom-out': 'Zoom out',
-    'fit-bounds': 'Fit to selection',
-    'download-tiles': 'Download selected tiles',
-    'menu-toggle': 'Settings'
-  };
-  
-  Object.entries(betterTooltips).forEach(([id, text]) => {
-    const btn = document.getElementById(id);
-    if (btn) {
-      btn.setAttribute('title', text);
-      btn.setAttribute('aria-label', text);
-    }
-  });
-}
-
-/**
  * Initialize the application
  */
 function initialize(): void {
   // Load persisted settings first
-  loadSettings();
+  loadSettings(state.settings);
   
   // Fix the broken icons immediately
   fixBrokenIcons();
@@ -2090,73 +1835,6 @@ function initialize(): void {
   
   // Set up offline detection
   setupOfflineDetection();
-}
-
-/**
- * Register service worker for PWA functionality
- */
-async function registerServiceWorker(): Promise<void> {
-  // Skip SW in dev to avoid 404s; only register in production builds
-  const isDev = (import.meta as any)?.env?.DEV === true || (import.meta as any)?.env?.MODE === 'development';
-  if ('serviceWorker' in navigator && !isDev) {
-    try {
-      const base = (import.meta as any)?.env?.BASE_URL ?? '/';
-      const swUrl = computeServiceWorkerUrl(base);
-      const registration = await navigator.serviceWorker.register(swUrl);
-      console.log('Service Worker registered:', registration.scope);
-      
-      // Check for updates periodically
-      setInterval(() => {
-        registration.update();
-      }, 60000); // Check every minute
-      
-      // Handle updates
-      registration.addEventListener('updatefound', () => {
-        const newWorker = registration.installing;
-        if (newWorker) {
-          newWorker.addEventListener('statechange', () => {
-            if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
-              // New service worker available
-              notifications.info('Update available! Refresh to get the latest version.', {
-                persistent: true,
-                action: {
-                  label: 'Refresh',
-                  callback: () => window.location.reload(),
-                },
-              });
-            }
-          });
-        }
-      });
-    } catch (error) {
-      console.warn('Service Worker registration failed (non-fatal):', error);
-    }
-  }
-}
-
-/**
- * Set up offline detection
- */
-function setupOfflineDetection(): void {
-  const offlineIndicator = document.getElementById('offline-indicator');
-  
-  const updateOnlineStatus = () => {
-    if (navigator.onLine) {
-      offlineIndicator?.style.setProperty('display', 'none');
-      notifications.success('Connection restored');
-    } else {
-      offlineIndicator?.style.setProperty('display', 'flex');
-      notifications.warning('You are offline. Some features may be limited.');
-    }
-  };
-  
-  window.addEventListener('online', updateOnlineStatus);
-  window.addEventListener('offline', updateOnlineStatus);
-  
-  // Check initial status
-  if (!navigator.onLine) {
-    offlineIndicator?.style.setProperty('display', 'flex');
-  }
 }
 
 // Start app when DOM is ready
