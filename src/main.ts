@@ -10,12 +10,13 @@ import { StorageManager } from './lib/storage-manager';
 import { notifications } from './lib/notification-manager';
 import { estimateFileSizes, formatBytes, latLonToTileId } from './lib/tile-utils';
 import { buildCachedGeoJSON } from './lib/cached-overlay';
-import { computeServiceWorkerUrl } from './lib/sw';
 import { SelectionStore } from './lib/selection-system';
 import { SelectionUI } from './lib/selection-ui';
 import { showToast, showZoomMessage, hideZoomMessage } from './ui/notices';
 import { showProgressOverlay, hideProgressOverlay, updateProgressDisplay } from './ui/progress-overlay';
 import { fixBrokenIcons } from './ui/icons';
+import { type AppSettings, saveSettings, loadSettings } from './app/settings';
+import { registerServiceWorker, setupOfflineDetection } from './app/pwa';
 
 // Application state
 interface AppState {
@@ -35,12 +36,7 @@ interface AppState {
   downloadFilename: string | null; // Store filename for current download
   selectionStore: SelectionStore;
   selectionUI: SelectionUI | null;
-  settings: {
-    showGrid: boolean;
-    showLabels: boolean;
-    concurrentDownloads: number;
-    useCache: boolean;
-  };
+  settings: AppSettings;
 }
 
 const state: AppState = {
@@ -1362,7 +1358,7 @@ function setupControls(): void {
   if (showGridCheckbox) {
     showGridCheckbox.addEventListener('change', () => {
       state.settings.showGrid = showGridCheckbox.checked;
-      saveSettings();
+      saveSettings(state.settings);
       if (state.settings.showGrid) {
         drawTileGrid();
       } else if (state.map) {
@@ -1377,7 +1373,7 @@ function setupControls(): void {
   if (showLabelsCheckbox) {
     showLabelsCheckbox.addEventListener('change', () => {
       state.settings.showLabels = showLabelsCheckbox.checked;
-      saveSettings();
+      saveSettings(state.settings);
       if (state.settings.showGrid) {
         drawTileGrid();
       }
@@ -1389,7 +1385,7 @@ function setupControls(): void {
     concurrentDownloadsSelect.value = state.settings.concurrentDownloads.toString();
     concurrentDownloadsSelect.addEventListener('change', () => {
       state.settings.concurrentDownloads = parseInt(concurrentDownloadsSelect.value, 10);
-      saveSettings();
+      saveSettings(state.settings);
       console.log('Updated concurrent downloads to:', state.settings.concurrentDownloads);
     });
   }
@@ -1399,7 +1395,7 @@ function setupControls(): void {
     useCacheCheckbox.checked = state.settings.useCache;
     useCacheCheckbox.addEventListener('change', () => {
       state.settings.useCache = useCacheCheckbox.checked;
-      saveSettings();
+      saveSettings(state.settings);
       // Refresh cache overlay info
       void refreshCachedTiles();
     });
@@ -1474,24 +1470,6 @@ function setupControls(): void {
       }
     });
   }
-}
-
-function saveSettings(): void {
-  try {
-    localStorage.setItem('srtm2tak_settings', JSON.stringify(state.settings));
-  } catch {}
-}
-
-function loadSettings(): void {
-  try {
-    const raw = localStorage.getItem('srtm2tak_settings');
-    if (!raw) return;
-    const s = JSON.parse(raw);
-    state.settings.showGrid = Boolean(s.showGrid ?? state.settings.showGrid);
-    state.settings.showLabels = Boolean(s.showLabels ?? state.settings.showLabels);
-    state.settings.concurrentDownloads = Number(s.concurrentDownloads ?? state.settings.concurrentDownloads);
-    state.settings.useCache = Boolean(s.useCache ?? state.settings.useCache);
-  } catch {}
 }
 
 async function updateStorageInfo(): Promise<void> {
@@ -1791,7 +1769,7 @@ function handleDownloadError(error: Error): void {
  */
 function initialize(): void {
   // Load persisted settings first
-  loadSettings();
+  loadSettings(state.settings);
   
   // Fix the broken icons immediately
   fixBrokenIcons();
@@ -1857,73 +1835,6 @@ function initialize(): void {
   
   // Set up offline detection
   setupOfflineDetection();
-}
-
-/**
- * Register service worker for PWA functionality
- */
-async function registerServiceWorker(): Promise<void> {
-  // Skip SW in dev to avoid 404s; only register in production builds
-  const isDev = (import.meta as any)?.env?.DEV === true || (import.meta as any)?.env?.MODE === 'development';
-  if ('serviceWorker' in navigator && !isDev) {
-    try {
-      const base = (import.meta as any)?.env?.BASE_URL ?? '/';
-      const swUrl = computeServiceWorkerUrl(base);
-      const registration = await navigator.serviceWorker.register(swUrl);
-      console.log('Service Worker registered:', registration.scope);
-      
-      // Check for updates periodically
-      setInterval(() => {
-        registration.update();
-      }, 60000); // Check every minute
-      
-      // Handle updates
-      registration.addEventListener('updatefound', () => {
-        const newWorker = registration.installing;
-        if (newWorker) {
-          newWorker.addEventListener('statechange', () => {
-            if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
-              // New service worker available
-              notifications.info('Update available! Refresh to get the latest version.', {
-                persistent: true,
-                action: {
-                  label: 'Refresh',
-                  callback: () => window.location.reload(),
-                },
-              });
-            }
-          });
-        }
-      });
-    } catch (error) {
-      console.warn('Service Worker registration failed (non-fatal):', error);
-    }
-  }
-}
-
-/**
- * Set up offline detection
- */
-function setupOfflineDetection(): void {
-  const offlineIndicator = document.getElementById('offline-indicator');
-  
-  const updateOnlineStatus = () => {
-    if (navigator.onLine) {
-      offlineIndicator?.style.setProperty('display', 'none');
-      notifications.success('Connection restored');
-    } else {
-      offlineIndicator?.style.setProperty('display', 'flex');
-      notifications.warning('You are offline. Some features may be limited.');
-    }
-  };
-  
-  window.addEventListener('online', updateOnlineStatus);
-  window.addEventListener('offline', updateOnlineStatus);
-  
-  // Check initial status
-  if (!navigator.onLine) {
-    offlineIndicator?.style.setProperty('display', 'flex');
-  }
 }
 
 // Start app when DOM is ready
