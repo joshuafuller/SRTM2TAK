@@ -4,78 +4,9 @@
  */
 
 import { http, HttpResponse } from 'msw';
-import * as fs from 'fs';
-import * as path from 'path';
-import { fileURLToPath } from 'url';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+import { TEST_OCEAN_TILES, loadTestTile } from '../fixtures/test-tiles';
 
 const S3_BASE_URL = 'https://s3.amazonaws.com/elevation-tiles-prod/skadi';
-const TEST_DATA_DIR = path.join(__dirname, '..', '..', 'test-data', 'tiles');
-
-// Our 4 test tiles around Pikes Peak
-export const TEST_TILES = new Set([
-  'N38W106',
-  'N38W105', 
-  'N39W106',
-  'N39W105'
-]);
-
-// Known ocean tiles (return 404)
-export const TEST_OCEAN_TILES = new Set([
-  'N37W123', // Pacific Ocean off California
-  'N38W124', // Pacific Ocean
-  'N00W090', // Pacific Ocean at equator
-  'S10E105', // Indian Ocean
-  'N50W002', // English Channel
-  'N40W074', // Atlantic Ocean off NYC
-  'N00W000', // Test ocean tile
-]);
-
-/**
- * Load real tile data from test fixtures
- */
-function loadTestTile(tileId: string): Buffer | null {
-  // Check if it's one of our test tiles
-  if (!TEST_TILES.has(tileId)) {
-    return null;
-  }
-  
-  const tilePath = path.join(TEST_DATA_DIR, `${tileId}.hgt.gz`);
-  
-  try {
-    return fs.readFileSync(tilePath);
-  } catch (error) {
-    console.warn(`Test tile ${tileId} not found at ${tilePath}`);
-    return null;
-  }
-}
-
-/**
- * Get test tile data for E2E tests (for backward compatibility)
- */
-export function getTestTileData(tileId: string): { gzipped: Buffer } {
-  const tileData = loadTestTile(tileId);
-  if (tileData) {
-    return { gzipped: tileData };
-  }
-  
-  // For tiles not in our test set, generate mock data
-  // This creates realistic SRTM data (25,934,402 bytes)
-  const srtmSize = 3601 * 3601 * 2; // 16-bit elevation values
-  const uncompressed = Buffer.alloc(srtmSize);
-  
-  // Fill with realistic elevation data (big-endian 16-bit integers)
-  for (let i = 0; i < srtmSize; i += 2) {
-    const elevation = Math.floor(Math.random() * 4000) + 100; // 100-4100m
-    uncompressed.writeUInt16BE(elevation, i);
-  }
-  
-  // Compress the data
-  const gzipped = require('zlib').gzipSync(uncompressed);
-  return { gzipped };
-}
 
 export const handlers = [
   // Mock SRTM tile download

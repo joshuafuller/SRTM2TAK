@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 
 const h = vi.hoisted(() => ({
   fetchMock: vi.fn(() => Promise.resolve(new ArrayBuffer(0))),
@@ -16,7 +16,11 @@ vi.mock('@/lib/tile-fetcher', () => ({
 }));
 
 vi.mock('@/lib/stream-zip', () => ({
-  StreamZip: vi.fn().mockImplementation(function () { return { createZip: (...args:any[]) => h.createZipMock(...args) }; })
+  StreamZip: vi.fn().mockImplementation(function () {
+    return {
+      createZip: (iter: AsyncIterable<{ id: string; data: ArrayBuffer }>) => h.createZipMock(iter)
+    };
+  })
 }));
 
 vi.mock('@/lib/storage-manager', () => ({
@@ -33,15 +37,10 @@ describe('DownloadManager callbacks over many tiles', () => {
     const tiles = Array.from({ length: N }, (_, i) => `N22E${String(100 + i).padStart(3, '0')}`);
 
     // Mock fetcher to resolve all tiles
-    h.fetchMock.mockImplementation(async () => new ArrayBuffer(100));
-    vi.mock('@/lib/tile-fetcher', () => ({
-      TileFetcher: vi.fn().mockImplementation(function () { return {
-        fetch: vi.fn().mockImplementation(async () => {
-          await new Promise((r) => setTimeout(r, Math.random() * 3));
-          return new ArrayBuffer(100);
-        })
-      }; })
-    }));
+    h.fetchMock.mockImplementation(async () => {
+      await new Promise((r) => setTimeout(r, Math.random() * 3));
+      return new ArrayBuffer(100);
+    });
 
     // Disable cache
     h.storageFactory = () => ({
@@ -54,7 +53,10 @@ describe('DownloadManager callbacks over many tiles', () => {
     // Fake zip: just consume all tiles and return blob
     h.createZipMock.mockImplementation(async (iter: AsyncIterable<{ id:string; data:ArrayBuffer }>) => {
       let count = 0;
-      for await (const _ of iter) count++;
+      for await (const tile of iter) {
+        expect(tile.data.byteLength).toBe(100);
+        count++;
+      }
       expect(count).toBe(N);
       return new Blob([new Uint8Array([7,7,7])], { type: 'application/zip' });
     });
