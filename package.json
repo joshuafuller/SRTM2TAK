@@ -21,7 +21,7 @@
     "@types/maplibre-gl": "^1.13.2",
     "@zip.js/zip.js": "^2.7.34",
     "idb": "^8.0.0",
-    "maplibre-gl": "^5.7.1",
+    "maplibre-gl": "^6.4.1",
     "pako": "^2.1.0",
     "workbox-precaching": "^7.0.0",
     "workbox-routing": "^7.0.0"
