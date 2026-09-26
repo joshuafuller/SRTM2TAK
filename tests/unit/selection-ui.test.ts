@@ -3,7 +3,6 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import * as maplibregl from 'maplibre-gl';
 import { SelectionUI } from '../../src/lib/selection-ui';
 import { SelectionStore } from '../../src/lib/selection-system';
 

@@ -1,8 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { SelectionUI } from '../src/lib/selection-ui';
 import { SelectionStore } from '../src/lib/selection-system';
-import * as maplibregl from 'maplibre-gl';
-
 // Mock maplibre-gl
 vi.mock('maplibre-gl');
 

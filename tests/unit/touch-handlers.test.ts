@@ -3,8 +3,6 @@
  */
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import * as maplibregl from 'maplibre-gl';
-
 // Mock MapLibre GL
 vi.mock('maplibre-gl', () => ({
   default: {
