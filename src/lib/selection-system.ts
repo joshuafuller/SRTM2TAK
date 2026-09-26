@@ -5,6 +5,7 @@
  */
 
 import { getTileFriendlyName, formatDownloadName, TileInfo } from './smart-tile-naming';
+import type { Feature, FeatureCollection } from 'geojson';
 
 // Domain Types
 export interface BoundingBox {
@@ -258,7 +259,7 @@ export class SelectionStore {
 /**
  * Helper to create selection overlay on map
  */
-export function createSelectionOverlay(bounds: BoundingBox): GeoJSON.Feature {
+export function createSelectionOverlay(bounds: BoundingBox): Feature {
   return {
     type: 'Feature',
     properties: {
@@ -280,7 +281,7 @@ export function createSelectionOverlay(bounds: BoundingBox): GeoJSON.Feature {
 /**
  * Helper to create tile overlay for visualization
  */
-export function createTileOverlay(tiles: TileId[], cached: Set<string>): GeoJSON.FeatureCollection {
+export function createTileOverlay(tiles: TileId[], cached: Set<string>): FeatureCollection {
   const features = tiles.map(tile => ({
     type: 'Feature' as const,
     properties: {

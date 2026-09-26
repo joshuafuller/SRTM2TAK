@@ -4,7 +4,7 @@
  * Integrates the selection system with MapLibre GL
  */
 
-import maplibregl from 'maplibre-gl';
+import * as maplibregl from 'maplibre-gl';
 import { SelectionStore, SelectionState, BoundingBox, createSelectionOverlay, createTileOverlay } from './selection-system';
 
 export interface SelectionUIOptions {
