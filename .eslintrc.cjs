@@ -36,7 +36,10 @@ module.exports = {
     '@typescript-eslint/no-unsafe-return': 'off',
     '@typescript-eslint/no-misused-promises': 'off',
     '@typescript-eslint/no-var-requires': 'off',
-    '@typescript-eslint/ban-types': 'off'
+    '@typescript-eslint/no-require-imports': 'off',
+    '@typescript-eslint/ban-types': 'off',
+    '@typescript-eslint/no-unsafe-function-type': 'off',
+    '@typescript-eslint/prefer-promise-reject-errors': 'off'
   },
   ignorePatterns: [
     'dist/',
