@@ -18,7 +18,8 @@ export interface DownloadManagerOptions {
   onProgress?: (progress: DownloadProgress) => void;
   onTileStart?: (tileId: string) => void;
   onTileComplete?: (tileId: string, success: boolean) => void;
-  onComplete?: (blob: Blob) => void;
+  // failedTiles: tiles that failed with an error (ocean tiles are not failures)
+  onComplete?: (blob: Blob, result: { failedTiles: string[] }) => void;
   onError?: (error: Error) => void;
 }
 
@@ -37,6 +38,7 @@ export class DownloadManager {
   private streamZip: StreamZip;
   private currentSession: DownloadSession | null = null;
   private abortController: AbortController | null = null;
+  private failedTiles: string[] = [];
   private downloadStartTime: number = 0;
   private cacheStats = {
     hits: 0,
@@ -132,6 +134,7 @@ export class DownloadManager {
     this.tilesFromNetwork = 0;
     this.tilesCompleted = 0;
     this.tilesTotal = tileIds.length;
+    this.failedTiles = [];
     this.lastProgressUpdate = Date.now();
     // Estimate total compressed size for progress (will be refined with actual data)
     this.totalEstimatedBytes = tileIds.length * 6.5 * 1024 * 1024;
@@ -153,8 +156,11 @@ export class DownloadManager {
       
       // Create ZIP blob
       const blob = await this.streamZip.createZip(tileIterator);
-      
-      
+
+      if (this.failedTiles.length === tileIds.length) {
+        throw new Error(`All ${tileIds.length} tiles failed to download`);
+      }
+
       // Mark session as completed
       if (this.currentSession) {
         this.currentSession = DownloadManifest.updateStatus(
@@ -165,7 +171,7 @@ export class DownloadManager {
       }
       
       // Call completion callback
-      this.options.onComplete?.(blob);
+      this.options.onComplete?.(blob, { failedTiles: [...this.failedTiles] });
       
       return blob;
     } catch (error) {
@@ -251,6 +257,16 @@ export class DownloadManager {
   }
   
   /**
+   * Record a tile that failed with an error, so the caller can report it
+   */
+  private markFailed(tileId: string, error: unknown): void {
+    console.error(`Failed to download tile ${tileId}:`, error);
+    this.failedTiles.push(tileId);
+    if (this.currentSession) this.currentSession = DownloadManifest.markTileFailed(this.currentSession, tileId);
+    this.options.onTileComplete?.(tileId, false);
+  }
+
+  /**
    * True after cancelDownload() or pauseDownload() for the current download
    */
   isCancelled(): boolean {
@@ -309,7 +325,7 @@ export class DownloadManager {
       promiseRef = processor(item)
         .then(result => ({ promise: promiseRef, result }))
         .catch((err) => {
-          console.error(`Failed to process item ${item}:`, err);
+          if (!signal?.aborted) this.markFailed(item, err);
           return { promise: promiseRef, result: null };
         });
       inFlight.add(promiseRef);

@@ -1654,8 +1654,8 @@ async function startDownload(): Promise<void> {
     onTileComplete: (tileId, success) => {
       if (isActiveDownload(manager)) handleTileComplete(tileId, success);
     },
-    onComplete: (blob) => {
-      if (isActiveDownload(manager)) handleDownloadComplete(blob);
+    onComplete: (blob, result) => {
+      if (isActiveDownload(manager)) handleDownloadComplete(blob, result.failedTiles);
     },
     onError: (error) => {
       if (isActiveDownload(manager)) handleDownloadError(error);
@@ -1740,7 +1740,7 @@ function handleTileComplete(tileId: string, success: boolean): void {
 /**
  * Handle download completion
  */
-function handleDownloadComplete(blob: Blob): void {
+function handleDownloadComplete(blob: Blob, failedTiles: string[] = []): void {
   hideProgressOverlay();
   state.isDownloading = false;
 
@@ -1771,8 +1771,14 @@ function handleDownloadComplete(blob: Blob): void {
   
   // Show success notification
   const selectionState = state.selectionStore.getState();
+  if (failedTiles.length > 0) {
+    notifications.warning(
+      `${failedTiles.length} of ${selectionState.totalTiles} tiles failed and are not in the ZIP: ${failedTiles.join(', ')}. Download again to retry them.`,
+      { duration: 15000 }
+    );
+  }
   notifications.success(
-    `Download complete! ${selectionState.totalTiles} tiles saved.`,
+    `Download complete! ${selectionState.totalTiles - failedTiles.length} tiles saved.`,
     {
       duration: 10000,
       action: {
