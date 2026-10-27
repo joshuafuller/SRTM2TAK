@@ -1638,19 +1638,30 @@ async function startDownload(): Promise<void> {
   }
   drawTileGrid();
   
-  // Create download manager
-  state.downloadManager = new DownloadManager({
+  // Create download manager. Its callbacks act only while it is the current,
+  // not-cancelled download, so a cancelled run cannot touch a newer one.
+  const manager: DownloadManager = new DownloadManager({
     concurrentDownloads: state.settings.concurrentDownloads,
     useCache: state.settings.useCache,
     onTileStart: (tileId: string) => {
+      if (!isActiveDownload(manager)) return;
       state.downloadingTiles.add(tileId);
       if (state.settings.showGrid) drawTileGrid();
     },
-    onProgress: updateProgressDisplay,
-    onTileComplete: handleTileComplete,
-    onComplete: handleDownloadComplete,
-    onError: handleDownloadError,
+    onProgress: (progress) => {
+      if (isActiveDownload(manager)) updateProgressDisplay(progress);
+    },
+    onTileComplete: (tileId, success) => {
+      if (isActiveDownload(manager)) handleTileComplete(tileId, success);
+    },
+    onComplete: (blob) => {
+      if (isActiveDownload(manager)) handleDownloadComplete(blob);
+    },
+    onError: (error) => {
+      if (isActiveDownload(manager)) handleDownloadError(error);
+    },
   });
+  state.downloadManager = manager;
   
   // Get selected tiles array
   // Use the tileIds we computed above
@@ -1696,6 +1707,13 @@ async function startDownload(): Promise<void> {
     console.error('Download failed:', error);
     handleDownloadError(error as Error);
   }
+}
+
+/**
+ * True while this manager runs the current download and was not cancelled
+ */
+function isActiveDownload(manager: DownloadManager): boolean {
+  return state.downloadManager === manager && !manager.isCancelled();
 }
 
 /**

@@ -26,7 +26,7 @@ describe('Issue #5 and #6 Verification - Simple', () => {
 
     it('manageConcurrentPool handles Promise pool correctly', () => {
       expect(sourceFile).toContain('const inFlight = new Set<Promise');
-      expect(sourceFile).toContain('Promise.race(inFlight)');
+      expect(sourceFile).toContain('Promise.race([...inFlight, aborted])');
       expect(sourceFile).toContain('inFlight.delete');
     });
   });
