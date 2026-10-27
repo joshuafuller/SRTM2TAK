@@ -41,6 +41,30 @@ export interface SelectionState {
 // Pure Functions - Testable Core Logic
 
 /**
+ * Wrap a longitude into [-180, 180)
+ */
+function wrapLongitude(lon: number): number {
+  return ((((lon + 180) % 360) + 360) % 360) - 180;
+}
+
+/**
+ * Tile longitudes (SW corners, -180..179) covered from west to east.
+ * Handles map longitudes outside ±180 (a drag across 180° or a repeated
+ * world copy) and boxes given as west > east across the antimeridian.
+ */
+function tileLongitudes(west: number, east: number): number[] {
+  // Map drags give west < east, even past 180°; a box with west > east crosses 180°
+  const span = west <= east ? east - west : east + 360 - west;
+  if (span >= 360) {
+    return Array.from({ length: 360 }, (_, i) => i - 180);
+  }
+
+  const first = Math.floor(wrapLongitude(west));
+  const count = Math.floor(wrapLongitude(west) + span) - first + 1;
+  return Array.from({ length: count }, (_, i) => wrapLongitude(first + i));
+}
+
+/**
  * Convert a bounding box to the list of SRTM tiles it covers
  * SRTM tiles are 1°×1° and named by their SW corner
  */
@@ -52,47 +76,18 @@ export function boundingBoxToTiles(bounds: BoundingBox): TileId[] {
     return tiles;
   }
 
-  // For longitude, allow antimeridian crossing (east < west is valid)
-  
   // SRTM coverage: -56° to +60° latitude
   const minLat = Math.max(Math.floor(bounds.south), -56);
   const maxLat = Math.min(Math.floor(bounds.north), 59);
-  
-  // Handle longitude (wraps at ±180)
-  const minLon = Math.floor(bounds.west);
-  const maxLon = Math.floor(bounds.east);
 
-  // Generate tiles
-  if (bounds.west > bounds.east) {
-    // Antimeridian crossing case
-    for (let lat = minLat; lat <= maxLat; lat++) {
-      // Western hemisphere tiles (positive to 180)
-      for (let lon = minLon; lon <= 180; lon++) {
-        tiles.push({
-          id: formatTileId(lat, lon),
-          lat,
-          lon
-        });
-      }
-      // Eastern hemisphere tiles (-180 to negative)
-      for (let lon = -180; lon <= maxLon; lon++) {
-        tiles.push({
-          id: formatTileId(lat, lon),
-          lat,
-          lon
-        });
-      }
-    }
-  } else {
-    // Normal case
-    for (let lat = minLat; lat <= maxLat; lat++) {
-      for (let lon = minLon; lon <= maxLon; lon++) {
-        tiles.push({
-          id: formatTileId(lat, lon),
-          lat,
-          lon
-        });
-      }
+  const lons = tileLongitudes(bounds.west, bounds.east);
+  for (let lat = minLat; lat <= maxLat; lat++) {
+    for (const lon of lons) {
+      tiles.push({
+        id: formatTileId(lat, lon),
+        lat,
+        lon
+      });
     }
   }
   
