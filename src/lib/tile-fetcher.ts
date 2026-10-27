@@ -35,6 +35,12 @@ export interface DownloadManifest {
   timestamp: number;
 }
 
+function throwIfCancelled(signal?: AbortSignal): void {
+  if (signal?.aborted) {
+    throw new DOMException('Download cancelled', 'AbortError');
+  }
+}
+
 export class TileFetcher {
   private baseUrl: string;
   private maxRetries: number;
@@ -58,26 +64,28 @@ export class TileFetcher {
     let lastError: Error | undefined;
     
     for (let attempt = 1; attempt <= this.maxRetries; attempt++) {
+      // A cancel from the caller ends the fetch at once: no request, no retry
+      throwIfCancelled(externalSignal);
+
+      const controller = new AbortController();
+      // Idle timeout: re-armed on each chunk, so a stalled body also times out
+      let timeoutId = setTimeout(() => controller.abort(), this.timeout);
+      const resetTimeout = () => {
+        clearTimeout(timeoutId);
+        timeoutId = setTimeout(() => controller.abort(), this.timeout);
+      };
+      // Relay external aborts into our local controller until the body is read
+      const onAbort = () => controller.abort();
+      externalSignal?.addEventListener('abort', onAbort, { once: true });
+
       try {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), this.timeout);
-        // Relay external aborts into our local controller
-        const onAbort = () => controller.abort();
-        if (externalSignal) {
-          if (externalSignal.aborted) controller.abort();
-          else externalSignal.addEventListener('abort', onAbort, { once: true });
-        }
-        
         const response = await fetch(url, {
           signal: controller.signal,
           headers: {
             'Accept': 'application/gzip',
           },
         });
-        
-        clearTimeout(timeoutId);
-        if (externalSignal) externalSignal.removeEventListener('abort', onAbort);
-        
+
         if (response.status === 404) {
           // Ocean tile or missing data
           return null;
@@ -104,7 +112,8 @@ export class TileFetcher {
           const { done, value } = await reader.read();
           
           if (done) break;
-          
+
+          resetTimeout();
           chunks.push(value);
           loaded += value.length;
           
@@ -131,18 +140,23 @@ export class TileFetcher {
         return result.buffer;
         
       } catch (error) {
+        throwIfCancelled(externalSignal);
+
         lastError = error instanceof Error ? error : new Error(String(error));
-        
-        if (error instanceof Error && error.name === 'AbortError') {
+
+        if ((error as { name?: string })?.name === 'AbortError') {
           lastError = new Error(`Timeout after ${this.timeout}ms`);
         }
-        
+
         if (attempt < this.maxRetries) {
           // Wait before retry with exponential backoff
-          await new Promise(resolve => 
+          await new Promise(resolve =>
             setTimeout(resolve, this.retryDelay * Math.pow(2, attempt - 1))
           );
         }
+      } finally {
+        clearTimeout(timeoutId);
+        externalSignal?.removeEventListener('abort', onAbort);
       }
     }
     

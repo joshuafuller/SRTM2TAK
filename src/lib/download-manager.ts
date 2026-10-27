@@ -238,10 +238,8 @@ export class DownloadManager {
    * Cancel current download
    */
   cancelDownload(): void {
-    if (this.abortController) {
-      this.abortController.abort();
-      this.abortController = null;
-    }
+    // Keep the aborted controller: the pool and tile workers check its signal
+    this.abortController?.abort();
     
     if (this.currentSession) {
       this.currentSession = DownloadManifest.updateStatus(
@@ -253,13 +251,17 @@ export class DownloadManager {
   }
   
   /**
+   * True after cancelDownload() or pauseDownload() for the current download
+   */
+  isCancelled(): boolean {
+    return this.abortController?.signal.aborted ?? false;
+  }
+
+  /**
    * Pause current download
    */
   pauseDownload(): void {
-    if (this.abortController) {
-      this.abortController.abort();
-      this.abortController = null;
-    }
+    this.abortController?.abort();
     
     if (this.currentSession) {
       this.currentSession = DownloadManifest.updateStatus(
@@ -287,9 +289,20 @@ export class DownloadManager {
     type WrappedResult = { promise: Promise<WrappedResult>; result: T | null };
     const inFlight = new Set<Promise<WrappedResult>>();
     let index = 0;
+    const signal = this.abortController?.signal;
+    const throwIfAborted = (): void => {
+      if (signal?.aborted) throw new DOMException('Download cancelled', 'AbortError');
+    };
+    // Settles when the user cancels, so the pool does not wait for in-flight tiles
+    const aborted = new Promise<never>((_resolve, reject) => {
+      signal?.addEventListener('abort', () => {
+        reject(new DOMException('Download cancelled', 'AbortError'));
+      }, { once: true });
+    });
+    aborted.catch(() => {});
 
     const launchNext = (): void => {
-      if (index >= items.length) return;
+      if (index >= items.length || signal?.aborted) return;
       const item = items[index++];
       // Create self-referencing promise to track completion
       let promiseRef: Promise<WrappedResult> = null as any;
@@ -309,11 +322,11 @@ export class DownloadManager {
 
     // Process results
     while (inFlight.size > 0) {
-      if (this.abortController?.signal.aborted) {
-        throw new DOMException('Download cancelled', 'AbortError');
-      }
-      const { promise, result } = await Promise.race(inFlight);
+      throwIfAborted();
+      const { promise, result } = await Promise.race([...inFlight, aborted]);
       inFlight.delete(promise);
+      // A tile can finish at the same moment the user cancels: do not use it
+      throwIfAborted();
 
       // Keep pool full
       while (inFlight.size < concurrency && index < items.length) {

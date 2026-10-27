@@ -120,6 +120,41 @@ test.describe('SRTM2TAK browser flow', () => {
     await expectTileCount(page, 0);
   });
 
+  test('a cancelled download does not save a file after a new download starts', async ({ page }) => {
+    let s3Requests = 0;
+    await page.route('**/elevation-tiles-prod/**', async (route) => {
+      s3Requests++;
+      await new Promise((resolve) => setTimeout(resolve, 1_500));
+      try {
+        await fulfillMockS3Route(route);
+      } catch {
+        // The browser may have already aborted the request after cancellation.
+      }
+    });
+    const downloads: string[] = [];
+    page.on('download', (download) => downloads.push(download.suggestedFilename()));
+
+    await openApp(page);
+    await selectPikesPeakTile(page);
+    await page.click('#download-button');
+    await expect(page.locator('#progress-overlay')).toBeVisible();
+    await page.click('#cancel-download');
+    await expect(page.locator('#progress-overlay')).not.toBeVisible();
+
+    // Start a new download while the cancelled one could still be running
+    await selectPikesPeakTile(page);
+    const downloadPromise = page.waitForEvent('download');
+    await page.click('#download-button');
+    await downloadPromise;
+    await expect(page.locator('#notifications .notification.success')).toContainText('Download complete');
+
+    // Give a leftover run time to finish (route delay + fetcher retry backoff)
+    await page.waitForTimeout(5_000);
+    expect(downloads).toHaveLength(1);
+    // The cancelled run must not retry its aborted request
+    expect(s3Requests).toBe(2);
+  });
+
   test('mobile viewport exposes settings without hiding map controls', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await openApp(page);
