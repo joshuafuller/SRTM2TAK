@@ -1014,3 +1014,17 @@ button:not(:disabled):active {
 .maplibregl-canvas.selecting {
   cursor: crosshair !important;
 }
+
+.map-error {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  text-align: center;
+  font-size: 16px;
+  line-height: 1.5;
+  color: #b71c1c;
+  background: #fafafa;
+}
