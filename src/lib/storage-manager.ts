@@ -3,7 +3,7 @@
  * Handles tile caching with LRU eviction and quota management
  */
 
-import { openDB, IDBPDatabase, DBSchema } from 'idb';
+import { openDB, unwrap, IDBPDatabase, DBSchema } from 'idb';
 
 export interface CachedTile {
   id: string;
@@ -56,6 +56,9 @@ interface SRTM2TAKDB extends DBSchema {
     };
   };
 }
+
+// get() writes lastAccessed back at most this often: a write copies the whole tile
+const LAST_ACCESSED_UPDATE_MS = 60 * 60 * 1000;
 
 export class StorageManager {
   private db: IDBPDatabase<SRTM2TAKDB> | IDBDatabase | null = null;
@@ -169,7 +172,7 @@ export class StorageManager {
       if ('get' in this.db) {
         const tile = await this.db.get('tiles', tileId);
 
-        if (tile) {
+        if (tile && this.needsAccessUpdate(tile)) {
           // Update last accessed time in a separate transaction
           tile.lastAccessed = Date.now();
           await this.db.put('tiles', tile);
@@ -182,7 +185,7 @@ export class StorageManager {
         const store = tx.objectStore('tiles');
         const tile = await this.getTile(store, tileId);
         
-        if (tile) {
+        if (tile && this.needsAccessUpdate(tile)) {
           // Update last accessed in separate transaction
           const updateTx = this.db.transaction(['tiles'], 'readwrite');
           const updateStore = updateTx.objectStore('tiles');
@@ -268,20 +271,20 @@ export class StorageManager {
    * Get storage information
    */
   async getStorageInfo(): Promise<StorageInfo> {
-    const tiles = await this.getAllTiles();
-    const totalSize = tiles.reduce((sum, tile) => sum + tile.size, 0);
-    
-    // Sort by timestamp to find oldest/newest
-    tiles.sort((a, b) => a.timestamp - b.timestamp);
-    
+    // Read only index keys, not the tile data
+    const sizes = await this.scanIndexKeys('size');
+    const byTime = await this.scanIndexKeys('timestamp');
+
     const info: StorageInfo = {
-      tileCount: tiles.length,
-      totalSize,
+      tileCount: sizes.length,
+      totalSize: sizes.reduce((sum, entry) => sum + Number(entry.key), 0),
     };
-    
-    if (tiles.length > 0) {
-      info.oldestTile = this.tileToMetadata(tiles[0]);
-      info.newestTile = this.tileToMetadata(tiles[tiles.length - 1]);
+
+    if (byTime.length > 0) {
+      const oldest = await this.peekTile(byTime[0].id);
+      const newest = await this.peekTile(byTime[byTime.length - 1].id);
+      if (oldest) info.oldestTile = this.tileToMetadata(oldest);
+      if (newest) info.newestTile = this.tileToMetadata(newest);
     }
     
     // Get quota if available
@@ -357,24 +360,27 @@ export class StorageManager {
    * Evict least recently used tiles
    */
   private async evictLRU(sizeNeeded: number): Promise<void> {
-    const tiles = await this.getAllTiles();
-    
-    // Sort by last accessed time (oldest first)
-    tiles.sort((a, b) => 
-      (a.lastAccessed || a.timestamp) - (b.lastAccessed || b.timestamp)
-    );
-    
+    // Read only index keys, not the tile data
+    const sizeById = new Map<string, number>();
+    for (const entry of await this.scanIndexKeys('size')) {
+      sizeById.set(entry.id, Number(entry.key));
+    }
+    // Oldest access first; fall back to timestamp if the index is missing
+    const order = this.hasIndex('lastAccessed')
+      ? await this.scanIndexKeys('lastAccessed')
+      : await this.scanIndexKeys('timestamp');
+
     let freedSpace = 0;
-    const currentSize = tiles.reduce((sum, tile) => sum + tile.size, 0);
+    const currentSize = [...sizeById.values()].reduce((sum, size) => sum + size, 0);
     const targetSize = this.maxCacheSize - sizeNeeded;
-    
-    for (const tile of tiles) {
+
+    for (const { id } of order) {
       if (currentSize - freedSpace <= targetSize) {
         break;
       }
-      
-      await this.delete(tile.id);
-      freedSpace += tile.size;
+
+      await this.delete(id);
+      freedSpace += sizeById.get(id) ?? 0;
     }
   }
   
@@ -382,8 +388,68 @@ export class StorageManager {
    * Get total size of cached tiles
    */
   private async getTotalSize(): Promise<number> {
-    const tiles = await this.getAllTiles();
-    return tiles.reduce((sum, tile) => sum + tile.size, 0);
+    const sizes = await this.scanIndexKeys('size');
+    return sizes.reduce((sum, entry) => sum + Number(entry.key), 0);
+  }
+
+  /**
+   * IDs of all cached tiles, without loading tile data
+   */
+  async getTileIds(): Promise<string[]> {
+    const entries = await this.scanIndexKeys('size');
+    return entries.map((entry) => entry.id);
+  }
+
+  /**
+   * True when get() should write a new lastAccessed time
+   */
+  private needsAccessUpdate(tile: CachedTile): boolean {
+    return Date.now() - (tile.lastAccessed ?? 0) >= LAST_ACCESSED_UPDATE_MS;
+  }
+
+  /**
+   * Raw IDBDatabase for both the idb wrapper and a raw database
+   */
+  private rawDb(): IDBDatabase {
+    if (!this.db) {
+      throw new Error('Database not initialized. Call init() first.');
+    }
+    return 'put' in this.db ? unwrap(this.db) : this.db;
+  }
+
+  private hasIndex(name: string): boolean {
+    return this.rawDb().transaction(['tiles'], 'readonly').objectStore('tiles').indexNames.contains(name);
+  }
+
+  /**
+   * Walk an index with a key cursor: gives (index key, tile id) in index
+   * order without reading the tile records
+   */
+  private scanIndexKeys(indexName: string): Promise<Array<{ key: IDBValidKey; id: string }>> {
+    return new Promise((resolve, reject) => {
+      const entries: Array<{ key: IDBValidKey; id: string }> = [];
+      const index = this.rawDb().transaction(['tiles'], 'readonly').objectStore('tiles').index(indexName);
+      const request = index.openKeyCursor();
+      request.onsuccess = () => {
+        const cursor = request.result;
+        if (!cursor) {
+          resolve(entries);
+          return;
+        }
+        // Tile IDs are the store's string keyPath
+        entries.push({ key: cursor.key, id: cursor.primaryKey as string });
+        cursor.continue();
+      };
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  /**
+   * Read one tile without changing lastAccessed
+   */
+  private peekTile(id: string): Promise<CachedTile | null> {
+    const store = this.rawDb().transaction(['tiles'], 'readonly').objectStore('tiles');
+    return this.getTile(store, id);
   }
   
   /**
