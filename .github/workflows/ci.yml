@@ -5,6 +5,9 @@ on:
     branches: [ main, develop, '001-*' ]
   pull_request:
     branches: [ main ]
+  # The Dependabot auto-merge job starts this on main: merges made with
+  # GITHUB_TOKEN do not trigger push workflows, so main was never tested or deployed.
+  workflow_dispatch:
 
 jobs:
   test:
@@ -54,17 +57,28 @@ jobs:
     - name: Install dependencies
       run: npm ci
 
-    - name: Install Playwright browser
-      run: npx playwright install --with-deps chromium
+    - name: Install Playwright browsers
+      run: npx playwright install --with-deps chromium firefox
+
+    # Test the production build, the same files that deploy to Pages
+    - name: Build
+      run: npm run build
 
     - name: Run e2e tests
       run: npm run test:e2e -- --reporter=list
+      env:
+        PW_PREVIEW: '1'
 
   deploy:
     needs: [test, e2e]
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/main'
-    
+
+    # One Pages deploy at a time; do not cancel a deploy in progress
+    concurrency:
+      group: pages
+      cancel-in-progress: false
+
     permissions:
       contents: read
       pages: write
@@ -115,6 +129,7 @@ jobs:
     permissions:
       contents: write
       pull-requests: write
+      actions: write
 
     steps:
     - name: Fetch Dependabot metadata
@@ -123,7 +138,10 @@ jobs:
 
     - name: Merge patch & minor updates
       if: steps.meta.outputs.update-type == 'version-update:semver-patch' || steps.meta.outputs.update-type == 'version-update:semver-minor'
-      run: gh pr merge --merge "$PR_URL"
+      run: |
+        gh pr merge --merge "$PR_URL"
+        # A GITHUB_TOKEN merge starts no push workflows, so run CI (test + deploy) on main
+        gh workflow run ci.yml --repo "$GITHUB_REPOSITORY" --ref main
       env:
         PR_URL: ${{ github.event.pull_request.html_url }}
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
