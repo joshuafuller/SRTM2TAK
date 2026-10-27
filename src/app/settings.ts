@@ -28,7 +28,11 @@ export function loadSettings(settings: AppSettings): void {
     const s = JSON.parse(raw);
     settings.showGrid = Boolean(s.showGrid ?? settings.showGrid);
     settings.showLabels = Boolean(s.showLabels ?? settings.showLabels);
-    settings.concurrentDownloads = Number(s.concurrentDownloads ?? settings.concurrentDownloads);
+    // A bad stored value would start no download workers: keep 1..10
+    const concurrent = Number(s.concurrentDownloads);
+    if (s.concurrentDownloads != null && Number.isFinite(concurrent)) {
+      settings.concurrentDownloads = Math.max(1, Math.min(10, Math.round(concurrent)));
+    }
     settings.useCache = Boolean(s.useCache ?? settings.useCache);
   } catch {}
 }

@@ -39,6 +39,8 @@ test.describe('SRTM2TAK browser flow', () => {
 
     const { data, zip } = await readDownloadedZip(download);
     expect(data.byteLength).toBeGreaterThan(1024);
+    // Deflated: a stored (level 0) 26 MB tile would make the ZIP over 25 MB
+    expect(data.byteLength).toBeLessThan(20_000_000);
 
     const files = Object.keys(zip.files);
     expect(files).toEqual(['N38W106.hgt']);
