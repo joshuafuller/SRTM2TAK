@@ -55,7 +55,7 @@ export default defineConfig({
   ],
   resolve: {
     alias: {
-      '@': resolve(__dirname, './src')
+      '@': resolve(import.meta.dirname, './src')
     }
   },
   worker: {
@@ -67,9 +67,11 @@ export default defineConfig({
     sourcemap: true,
     rollupOptions: {
       output: {
-        manualChunks: {
-          zip: ['@zip.js/zip.js'],
-          pako: ['pako']
+        // Vite 8 (Rolldown) takes manualChunks only as a function
+        manualChunks(id: string) {
+          if (id.includes('/node_modules/@zip.js/zip.js/')) return 'zip';
+          if (id.includes('/node_modules/pako/')) return 'pako';
+          return undefined;
         }
       }
     }

@@ -3,7 +3,7 @@ import { TileFetcher } from '@/lib/tile-fetcher';
 import { Decompressor } from '@/lib/decompressor';
 import { server } from '../mocks/server';
 import { http, HttpResponse } from 'msw';
-import pako from 'pako';
+import * as pako from 'pako';
 
 describe('S3 Download Integration', () => {
   let fetcher: TileFetcher;

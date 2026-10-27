@@ -3,7 +3,7 @@
  * Uses pako for gzip decompression
  */
 
-import pako from 'pako';
+import * as pako from 'pako';
 
 export class Decompressor {
   /**
@@ -146,7 +146,7 @@ export class Decompressor {
   static compress(data: ArrayBuffer, level: number = 6): ArrayBuffer {
     try {
       const uncompressed = new Uint8Array(data);
-      const compressed = pako.gzip(uncompressed, { level: level as pako.DeflateOptions['level'] });
+      const compressed = pako.gzip(uncompressed, { level });
       
       return compressed.buffer.slice(
         compressed.byteOffset,

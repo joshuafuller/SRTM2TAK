@@ -4,7 +4,7 @@ import { server } from './mocks/server';
 
 // Start mock server before all tests
 // Allow non-HTTP schemes (e.g., data: URLs for wasm) to bypass MSW
-beforeAll(() => server.listen({ onUnhandledRequest: 'bypass' }));
+beforeAll(() => server.listen({ onUnhandledFrame: 'bypass' }));
 
 // Reset handlers after each test
 afterEach(() => server.resetHandlers());
@@ -13,14 +13,16 @@ afterEach(() => server.resetHandlers());
 afterAll(() => server.close());
 
 // Mock browser APIs
-(global.performance as any) = {
-  ...global.performance,
-  memory: {
+// Add memory to the real object: a spread copy loses prototype methods such as now()
+Object.defineProperty(global.performance, 'memory', {
+  configurable: true,
+  writable: true,
+  value: {
     usedJSHeapSize: 50 * 1024 * 1024,
     totalJSHeapSize: 100 * 1024 * 1024,
     jsHeapSizeLimit: 2048 * 1024 * 1024,
   },
-};
+});
 
 // Mock IndexedDB
 import 'fake-indexeddb/auto';
