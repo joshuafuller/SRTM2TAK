@@ -102,6 +102,32 @@ describe('Selection System', () => {
       expect(lons.some(lon => lon > 0)).toBe(true);
       expect(lons.some(lon => lon < 0)).toBe(true);
     });
+
+    it('never makes a tile at longitude 180 for an antimeridian box', () => {
+      const tiles = boundingBoxToTiles({ north: 0.5, south: 0.2, east: -178.5, west: 179.5 });
+      expect(tiles.map(t => t.id).sort()).toEqual(['N00E179', 'N00W179', 'N00W180']);
+    });
+
+    it('wraps an unwrapped map drag across 180° (lng above 180)', () => {
+      // MapLibre unproject() gives lng 180.5 east of the antimeridian
+      const tiles = boundingBoxToTiles({ north: 0.5, south: 0.2, east: 180.5, west: 179.5 });
+      expect(tiles.map(t => t.id).sort()).toEqual(['N00E179', 'N00W180']);
+    });
+
+    it('wraps a selection on a repeated world copy', () => {
+      // Pikes Peak drawn one world copy to the east: lng -105.5 + 360
+      const tiles = boundingBoxToTiles({ north: 38.5, south: 38.1, east: 254.9, west: 254.5 });
+      expect(tiles.map(t => t.id)).toEqual(['N38W106']);
+    });
+
+    it('covers every longitude once for a box wider than the world', () => {
+      const tiles = boundingBoxToTiles({ north: 0.5, south: 0.2, east: 200, west: -200 });
+      const lons = tiles.map(t => t.lon);
+      expect(lons).toHaveLength(360);
+      expect(new Set(lons).size).toBe(360);
+      expect(Math.max(...lons)).toBe(179);
+      expect(Math.min(...lons)).toBe(-180);
+    });
   });
 
   describe('calculateAreaKm2', () => {

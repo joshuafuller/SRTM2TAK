@@ -11,7 +11,8 @@
 export function latLonToTileId(lat: number, lon: number): string {
   // Floor to get the tile's SW corner
   const tileLat = Math.floor(lat);
-  const tileLon = Math.floor(lon);
+  // Wrap into -180..179: map longitudes can pass ±180 on repeated world copies
+  const tileLon = ((((Math.floor(lon) + 180) % 360) + 360) % 360) - 180;
   
   // Determine hemisphere prefixes
   const latPrefix = tileLat >= 0 ? 'N' : 'S';
