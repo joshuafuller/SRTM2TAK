@@ -41,7 +41,15 @@ export default defineConfig({
     : CI_BROWSERS
       ? [
           { name: 'chromium', use: { ...devices['Desktop Chrome'] } },
-          { name: 'firefox', use: { ...devices['Desktop Firefox'] } },
+          {
+            name: 'firefox',
+            use: {
+              ...devices['Desktop Firefox'],
+              // CI runners have no GPU; Firefox blocks software WebGL by default,
+              // and MapLibre 6 needs WebGL2
+              launchOptions: { firefoxUserPrefs: { 'webgl.force-enabled': true } },
+            },
+          },
         ]
       : [
           // Default: single fast project to avoid long installs/hangs locally
