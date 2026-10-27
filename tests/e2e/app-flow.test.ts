@@ -155,6 +155,29 @@ test.describe('SRTM2TAK browser flow', () => {
     expect(s3Requests).toBe(2);
   });
 
+  test('reports a tile that failed with a server error', async ({ page }) => {
+    await page.route('**/elevation-tiles-prod/**', async (route) => {
+      if (route.request().url().includes('N39W105')) {
+        await route.fulfill({ status: 500, body: 'Internal Server Error', headers: { 'Access-Control-Allow-Origin': '*' } });
+        return;
+      }
+      await fulfillMockS3Route(route);
+    });
+
+    await openApp(page);
+    await selectPikesPeakArea(page);
+    await expectTileCount(page, 4);
+
+    const downloadPromise = page.waitForEvent('download');
+    await page.click('#download-button');
+    const download = await downloadPromise;
+
+    await expect(page.locator('#notifications .notification.warning')).toContainText('N39W105');
+    const { zip } = await readDownloadedZip(download);
+    expect(Object.keys(zip.files)).toContain('N38W106.hgt');
+    expect(Object.keys(zip.files)).not.toContain('N39W105.hgt');
+  });
+
   test('mobile viewport exposes settings without hiding map controls', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await openApp(page);
