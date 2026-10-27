@@ -392,6 +392,7 @@ export class DownloadManager {
     if (mem.level === 'warning') await new Promise((r) => setTimeout(r, 300));
 
     let data: ArrayBuffer | null = null;
+    let decompressed: ArrayBuffer | null = null;
     let cacheAttempted = false;
     // Try cache first if enabled
     if (this.options.useCache !== false && this.storage.isInitialized()) {
@@ -399,9 +400,18 @@ export class DownloadManager {
       try {
         const entry = await this.storage.get(tileId);
         if (entry && entry.data && entry.data.byteLength > 0) {
-          data = entry.data;
-          this.cacheStats.hits++;
-          this.tilesFromCache++;
+          try {
+            decompressed = Decompressor.decompress(entry.data);
+            data = entry.data;
+            this.cacheStats.hits++;
+            this.tilesFromCache++;
+          } catch (error) {
+            // A bad entry (for example a cached error page) would fail on every
+            // run: delete it and download the tile again
+            console.warn(`Corrupt cached tile ${tileId}, downloading again:`, error);
+            this.cacheStats.errors++;
+            await this.storage.delete(tileId).catch(() => {});
+          }
         } else {
           this.cacheStats.misses++;
         }
@@ -419,6 +429,8 @@ export class DownloadManager {
       data = await this.downloadTile(tileId);
       if (data && data.byteLength > 0) {
         this.tilesFromNetwork++;
+        // Throws for data that is not gzip, before it can be cached
+        decompressed = Decompressor.decompress(data);
       }
       if (data && data.byteLength > 0 && this.options.useCache !== false && this.storage.isInitialized()) {
         try {
@@ -444,10 +456,9 @@ export class DownloadManager {
       return { id: tileId, data: new ArrayBuffer(0) };
     }
 
-    const decompressed = Decompressor.decompress(data);
     if (this.currentSession) this.currentSession = DownloadManifest.markTileCompleted(this.currentSession, tileId);
     this.options.onTileComplete?.(tileId, true);
-    return { id: tileId, data: decompressed };
+    return { id: tileId, data: decompressed ?? Decompressor.decompress(data) };
   }
 
   private async processTile(tileId: string): Promise<{ id: string; data: ArrayBuffer }> {
