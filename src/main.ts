@@ -3,6 +3,7 @@
  */
 
 import * as maplibregl from 'maplibre-gl';
+import maplibreWorkerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import './styles/main.css';
 import { DownloadManager } from './lib/download-manager';
@@ -17,6 +18,10 @@ import { showProgressOverlay, hideProgressOverlay, updateProgressDisplay } from 
 import { fixBrokenIcons } from './ui/icons';
 import { type AppSettings, saveSettings, loadSettings } from './app/settings';
 import { registerServiceWorker, setupOfflineDetection } from './app/pwa';
+
+// MapLibre 6 loads its worker from a URL next to its own module file. Once Vite
+// bundles MapLibre, that file is not emitted, so point MapLibre at the bundled worker.
+maplibregl.setWorkerUrl(maplibreWorkerUrl);
 
 // Application state
 interface AppState {
@@ -107,6 +112,19 @@ function handleTileSelection(tileId: string): void {
 }
 
 /**
+ * Show why the map cannot start (no WebGL2) in place of the blank map
+ */
+function showMapError(mapElement: HTMLElement): void {
+  const message = document.createElement('div');
+  message.className = 'map-error';
+  message.setAttribute('role', 'alert');
+  message.textContent =
+    'The map cannot start because this browser does not have WebGL 2. ' +
+    'Turn on hardware acceleration in your browser settings, update your graphics driver, or use another browser.';
+  mapElement.appendChild(message);
+}
+
+/**
  * Initialize the MapLibre GL map with vector tiles
  */
 function initializeMap(): void {
@@ -117,39 +135,51 @@ function initializeMap(): void {
     return;
   }
 
+  // MapLibre 6 needs WebGL2. Without it the map stays blank, so tell the user why.
+  if (!document.createElement('canvas').getContext('webgl2')) {
+    showMapError(mapElement);
+    return;
+  }
+
   // Create map with OpenStreetMap raster tiles (simpler, no vector tiles)
-  state.map = new maplibregl.Map({
-    container: mapElement,
-    style: {
-      version: 8,
-      glyphs: 'https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf',
-      sources: {
-        'osm-raster': {
-          type: 'raster',
-          tiles: [
-            'https://a.tile.openstreetmap.org/{z}/{x}/{y}.png',
-            'https://b.tile.openstreetmap.org/{z}/{x}/{y}.png',
-            'https://c.tile.openstreetmap.org/{z}/{x}/{y}.png'
-          ],
-          tileSize: 256,
-          attribution: '© OpenStreetMap contributors'
-        }
+  try {
+    state.map = new maplibregl.Map({
+      container: mapElement,
+      style: {
+        version: 8,
+        glyphs: 'https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf',
+        sources: {
+          'osm-raster': {
+            type: 'raster',
+            tiles: [
+              'https://a.tile.openstreetmap.org/{z}/{x}/{y}.png',
+              'https://b.tile.openstreetmap.org/{z}/{x}/{y}.png',
+              'https://c.tile.openstreetmap.org/{z}/{x}/{y}.png'
+            ],
+            tileSize: 256,
+            attribution: '© OpenStreetMap contributors'
+          }
+        },
+        layers: [
+          {
+            id: 'osm-raster-layer',
+            type: 'raster',
+            source: 'osm-raster',
+            minzoom: 0,
+            maxzoom: 19
+          }
+        ]
       },
-      layers: [
-        {
-          id: 'osm-raster-layer',
-          type: 'raster',
-          source: 'osm-raster',
-          minzoom: 0,
-          maxzoom: 19
-        }
-      ]
-    },
-    center: [-98.5795, 39.8283], // Center of USA [lng, lat]
-    zoom: 4,
-    minZoom: 2,
-    maxZoom: 10,
-  });
+      center: [-98.5795, 39.8283], // Center of USA [lng, lat]
+      zoom: 4,
+      minZoom: 2,
+      maxZoom: 10,
+    });
+  } catch (error) {
+    console.error('Map failed to start:', error);
+    showMapError(mapElement);
+    return;
+  }
 
   // Wait for map to load
   state.map.on('load', () => {
