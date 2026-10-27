@@ -1111,10 +1111,8 @@ async function loadAllCachedTiles(): Promise<void> {
   try {
     const sm = new StorageManager();
     await sm.init();
-    const tiles = await sm.getAllTiles();
-    const ids = new Set<string>();
-    for (const t of tiles) ids.add(t.id);
-    state.cachedTiles = ids;
+    // IDs only: loading every tile would read the whole cache into memory
+    state.cachedTiles = new Set(await sm.getTileIds());
     if (state.settings.showGrid) drawTileGrid();
     renderCachedTiles();
   } catch {
