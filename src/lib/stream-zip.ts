@@ -54,7 +54,8 @@ export class StreamZip {
           tile.id.endsWith('.hgt') ? tile.id : `${tile.id}.hgt`,
           new BlobReader(blob),
           {
-            level: options.compressionLevel || 0, // 0 = store (no compression for already compressed data)
+            // Tiles are decompressed .hgt here; deflate makes the ZIP ~4x smaller (26 MB -> 6.5 MB per tile)
+            level: options.compressionLevel ?? 6,
             onprogress: (_progress, _total) => {
               // Progress for individual file (optional)
               return undefined;
@@ -124,7 +125,7 @@ export class StreamZip {
           filename,
           new BlobReader(blob),
           {
-            level: options.compressionLevel || 0,
+            level: options.compressionLevel ?? 6,
           }
         );
       }

@@ -1083,7 +1083,8 @@ async function refreshCachedTiles(): Promise<void> {
   try {
     const dm = new DownloadManager({ useCache: true });
     const set = await dm.getCachedTiles(Array.from(state.selectedTiles));
-    state.cachedTiles = set;
+    // Add to the global set: it also holds cached tiles outside this selection
+    for (const id of set) state.cachedTiles.add(id);
     // Reflect cached tiles as downloaded-success in overlay too
     for (const id of set) {
       state.downloadedTiles.add(id);
@@ -1319,6 +1320,15 @@ function setupControls(): void {
     });
   }
 
+  // Map control button shows or hides the panel
+  const toggleInfo = document.getElementById('toggle-info');
+  if (toggleInfo && infoPanel) {
+    toggleInfo.addEventListener('click', () => {
+      const visible = infoPanel.classList.toggle('hidden') === false;
+      try { localStorage.setItem('srtm2tak_info_visible', visible ? 'true' : 'false'); } catch {}
+    });
+  }
+
   // Clicking the peek handle or header when hidden restores the panel
   const infoHeader = document.querySelector('.info-header');
   const showInfo = () => {
@@ -1531,15 +1541,11 @@ async function clearCachesAndStorage(): Promise<void> {
   } catch {
     // ignore and continue
   }
-  // Clear runtime caches for SRTM tiles if present
+  // Clear the service worker's tile cache. Keep the Workbox precache: it holds
+  // the app shell, and the app does not load offline without it.
   try {
     if ('caches' in window) {
-      const keys = await caches.keys();
-      for (const key of keys) {
-        if (key === 'srtm-tiles' || key.startsWith('workbox-') || key.startsWith('vite-pwa')) {
-          await caches.delete(key);
-        }
-      }
+      await caches.delete('srtm-tiles');
     }
   } catch {
     // ignore
@@ -1609,7 +1615,7 @@ async function startDownload(): Promise<void> {
   state.downloadFilename = `${filename}_${Date.now()}.zip`;
   
   // Show progress overlay
-  showProgressOverlay(state.selectedTiles.size);
+  showProgressOverlay(selectionState.totalTiles);
   state.isDownloading = true;
   state.downloadCancelled = false;  // Reset cancel flag
   // Reset tile status markers
@@ -1762,7 +1768,8 @@ function handleDownloadComplete(blob: Blob, failedTiles: string[] = []): void {
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
-  URL.revokeObjectURL(url);
+  // Some browsers start reading a large blob after click() returns
+  setTimeout(() => URL.revokeObjectURL(url), 60_000);
   
   // Clear the stored filename
   state.downloadFilename = null;
