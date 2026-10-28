@@ -151,7 +151,7 @@ function getPositionInState(lat: number, lon: number, state: string): string {
   const latPos = (lat - bounds.south) / latRange;
   const lonPos = (lon - bounds.west) / lonRange;
 
-  let position = '';
+  let position: string;
   
   // Determine N/S/Central
   if (latPos > 0.66) position = 'Northern';

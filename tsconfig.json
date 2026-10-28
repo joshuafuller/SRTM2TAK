@@ -3,7 +3,7 @@
     "strict": true,
     "target": "ES2020",
     "module": "ESNext",
-    "lib": ["ES2020", "DOM", "WebWorker"],
+    "lib": ["ES2020", "ES2022.Error", "DOM", "WebWorker"],
     "types": ["vite/client", "node", "vitest/globals", "@testing-library/jest-dom"],
     "moduleResolution": "bundler",
     "allowImportingTsExtensions": true,
