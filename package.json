@@ -4,7 +4,7 @@
   "description": "SRTM elevation data downloader and packager for ATAK",
   "type": "module",
   "engines": {
-    "node": ">=22.12.0"
+    "node": ">=22.13.0"
   },
   "scripts": {
     "dev": "vite",
