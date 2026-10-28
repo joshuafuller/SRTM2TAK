@@ -8,7 +8,7 @@ test.describe('map startup', () => {
       if (message.type() === 'error') failures.push(`console: ${message.text()}`);
     });
     page.on('pageerror', (error) => failures.push(`pageerror: ${error.message}`));
-    // Only same-origin requests: the app's own files, such as the MapLibre worker
+    // Only same-origin requests: the app's own files
     page.on('response', (response) => {
       if (response.url().startsWith('http://127.0.0.1:5173/') && response.status() >= 400) {
         failures.push(`HTTP ${response.status()}: ${response.url()}`);
@@ -16,23 +16,23 @@ test.describe('map startup', () => {
     });
 
     await openApp(page);
-    await page.waitForFunction(() => (window as any).appState?.map?.loaded());
+    await expect(page.locator('#map .leaflet-tile-pane')).toBeAttached();
 
     expect(failures).toEqual([]);
   });
 
-  test('explains why the map cannot start when WebGL2 is missing', async ({ page }) => {
+  test('works in a browser without WebGL', async ({ page }) => {
+    // Firefox with hardware acceleration off has no WebGL 2; some setups have no WebGL at all
     await page.addInitScript(() => {
       const getContext = HTMLCanvasElement.prototype.getContext;
       HTMLCanvasElement.prototype.getContext = function (this: HTMLCanvasElement, type: string, ...args: unknown[]) {
-        if (type === 'webgl2') return null;
+        if (type === 'webgl' || type === 'webgl2' || type === 'experimental-webgl') return null;
         return (getContext as any).call(this, type, ...args);
       } as typeof getContext;
     });
 
-    await page.goto('/');
-
-    await expect(page.locator('#map .map-error')).toContainText('WebGL 2');
-    await expect(page.locator('#map canvas')).toHaveCount(0);
+    await openApp(page);
+    await expect(page.locator('#map .leaflet-tile-pane')).toBeAttached();
+    await expect(page.locator('#map .map-error')).toHaveCount(0);
   });
 });

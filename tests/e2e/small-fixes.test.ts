@@ -29,3 +29,22 @@ test.describe('audit fixes', () => {
     await expect(panel).toHaveClass(startHidden ? /\bhidden\b/ : /^(?!.*\bhidden\b)/);
   });
 });
+
+test('the grid stays hidden after Clear Selection when "Show grid" is off', async ({ page }) => {
+  await openApp(page);
+  await page.evaluate(() => { (window as any).appState.map.setView([38.5, -105.5], 6, { animate: false }); });
+  const gridShown = () => page.evaluate(() => {
+    const s = (window as any).appState;
+    return s.map.hasLayer(s.gridLayer) || s.map.hasLayer(s.labelLayer);
+  });
+  await expect.poll(gridShown).toBe(true);
+
+  await page.click('#menu-toggle');
+  await page.uncheck('#show-grid');
+  await expect.poll(gridShown).toBe(false);
+  await page.keyboard.press('Escape');
+
+  await page.evaluate(() => (document.getElementById('clear-selection') as HTMLButtonElement).click());
+  await page.waitForTimeout(300);
+  expect(await gridShown()).toBe(false);
+});

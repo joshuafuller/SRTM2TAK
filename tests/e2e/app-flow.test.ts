@@ -83,18 +83,18 @@ test.describe('SRTM2TAK browser flow', () => {
     await openApp(page);
 
     const drawButton = page.locator('#draw-rectangle');
-    const canvas = page.locator('#map canvas');
+    const mapContainer = page.locator('#map');
 
     await drawButton.click();
     await expect(drawButton).toHaveAttribute('aria-pressed', 'true');
     await expect
-      .poll(() => canvas.evaluate((el) => (el as HTMLCanvasElement).style.touchAction))
+      .poll(() => mapContainer.evaluate((el) => (el as HTMLElement).style.touchAction))
       .toBe('none');
 
     await drawButton.click();
     await expect(drawButton).toHaveAttribute('aria-pressed', 'false');
     await expect
-      .poll(() => canvas.evaluate((el) => (el as HTMLCanvasElement).style.touchAction))
+      .poll(() => mapContainer.evaluate((el) => (el as HTMLElement).style.touchAction))
       .toBe('');
   });
 

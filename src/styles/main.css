@@ -871,11 +871,6 @@ html, body {
   opacity: 0.95;
 }
 
-/* Improved Tile Interaction States */
-.maplibregl-canvas {
-  transition: cursor 0.1s ease;
-}
-
 /* Enhanced Button Interactions */
 button:not(:disabled) {
   transition: all 0.15s ease;
@@ -1006,25 +1001,18 @@ button:not(:disabled):active {
   margin: 2px;
 }
 
-/* Map overlay styles for selection */
-.maplibregl-canvas {
-  cursor: default;
-}
-
-.maplibregl-canvas.selecting {
-  cursor: crosshair !important;
-}
-
-.map-error {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 24px;
-  text-align: center;
-  font-size: 16px;
-  line-height: 1.5;
-  color: #b71c1c;
-  background: #fafafa;
+/* Tile ID labels on the grid (Leaflet divIcon markers) */
+.leaflet-marker-icon.tile-label {
+  width: auto !important;
+  height: auto !important;
+  margin: 0 !important;
+  transform-origin: center;
+  translate: -50% -50%;
+  font-size: 11px;
+  color: #333;
+  white-space: nowrap;
+  background: none;
+  border: none;
+  text-shadow: 0 0 2px #fff, 0 0 2px #fff;
+  pointer-events: none;
 }

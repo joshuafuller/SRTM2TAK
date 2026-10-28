@@ -128,7 +128,7 @@ export const test = base.extend({
 
 export async function openApp(page: Page): Promise<void> {
   await page.goto('/');
-  await page.waitForSelector('#map canvas', { state: 'visible' });
+  await page.waitForSelector('#map.leaflet-container', { state: 'visible' });
   await page.waitForFunction(() => Boolean((window as any).appState?.selectionUI));
 }
 
