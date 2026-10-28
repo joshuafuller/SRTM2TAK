@@ -8,7 +8,7 @@ import { MemoryMonitor } from '@/lib/memory-monitor';
 import { useTestDatabase } from '../utils/indexeddb-helper';
 import { server } from '../mocks/server';
 import { http, HttpResponse } from 'msw';
-import pako from 'pako';
+import * as pako from 'pako';
 
 describe('Download Pipeline Integration', () => {
   const { getDb } = useTestDatabase();

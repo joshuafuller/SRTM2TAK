@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { Decompressor } from '@/lib/decompressor';
-import pako from 'pako';
+import * as pako from 'pako';
 
 describe('Decompressor', () => {
   describe('decompress', () => {

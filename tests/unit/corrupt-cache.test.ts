@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import pako from 'pako';
+import * as pako from 'pako';
 
 const h = vi.hoisted(() => ({
   fetchMock: vi.fn(),
