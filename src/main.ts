@@ -112,15 +112,17 @@ function handleTileSelection(tileId: string): void {
 }
 
 /**
- * Show why the map cannot start (no WebGL2) in place of the blank map
+ * Show why the map cannot start, in place of the blank map
  */
-function showMapError(mapElement: HTMLElement): void {
+const NO_WEBGL2_MESSAGE =
+  'The map cannot start because this browser does not have WebGL 2. ' +
+  'Turn on hardware acceleration in your browser settings, update your graphics driver, or use another browser.';
+
+function showMapError(mapElement: HTMLElement, text: string = NO_WEBGL2_MESSAGE): void {
   const message = document.createElement('div');
   message.className = 'map-error';
   message.setAttribute('role', 'alert');
-  message.textContent =
-    'The map cannot start because this browser does not have WebGL 2. ' +
-    'Turn on hardware acceleration in your browser settings, update your graphics driver, or use another browser.';
+  message.textContent = text;
   mapElement.appendChild(message);
 }
 
@@ -177,7 +179,8 @@ function initializeMap(): void {
     });
   } catch (error) {
     console.error('Map failed to start:', error);
-    showMapError(mapElement);
+    // WebGL2 was found above, so this is a different failure: do not blame WebGL2
+    showMapError(mapElement, `The map could not start: ${(error as Error)?.message ?? String(error)}. Reload the page to try again.`);
     return;
   }
 
@@ -1657,6 +1660,8 @@ async function startDownload(): Promise<void> {
   }
   drawTileGrid();
   
+  // Set when the manager already reported an error, so the catch below does not repeat it
+  let errorReported = false;
   // Create download manager. Its callbacks act only while it is the current,
   // not-cancelled download, so a cancelled run cannot touch a newer one.
   const manager: DownloadManager = new DownloadManager({
@@ -1677,6 +1682,7 @@ async function startDownload(): Promise<void> {
       if (isActiveDownload(manager)) handleDownloadComplete(blob, result.failedTiles);
     },
     onError: (error) => {
+      errorReported = true;
       if (isActiveDownload(manager)) handleDownloadError(error);
     },
   });
@@ -1724,7 +1730,8 @@ async function startDownload(): Promise<void> {
       return;
     }
     console.error('Download failed:', error);
-    handleDownloadError(error as Error);
+    // Errors from setup (before the manager's own try) reach only this catch
+    if (!errorReported && isActiveDownload(manager)) handleDownloadError(error as Error);
   }
 }
 

@@ -180,6 +180,26 @@ test.describe('SRTM2TAK browser flow', () => {
     expect(Object.keys(zip.files)).not.toContain('N39W105.hgt');
   });
 
+  test('shows one error message when every tile fails', async ({ page }) => {
+    await page.route('**/elevation-tiles-prod/**', (route) =>
+      route.fulfill({ status: 500, body: 'Internal Server Error', headers: { 'Access-Control-Allow-Origin': '*' } })
+    );
+
+    await openApp(page);
+    await selectPikesPeakTile(page);
+    await page.click('#download-button');
+
+    const errors = page.locator('#notifications .notification.error');
+    await expect(errors.first()).toContainText('All 1 tiles failed');
+    // Watch for a second copy for a while (it used to appear right after the first)
+    let most = 0;
+    for (let i = 0; i < 10; i++) {
+      most = Math.max(most, await errors.count());
+      await page.waitForTimeout(100);
+    }
+    expect(most).toBe(1);
+  });
+
   test('mobile viewport exposes settings without hiding map controls', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await openApp(page);

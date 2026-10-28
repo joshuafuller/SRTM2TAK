@@ -89,3 +89,40 @@ describe('DownloadManager cancellation', () => {
     expect(onComplete).not.toHaveBeenCalled();
   });
 });
+
+describe('DownloadManager cancel before the pool starts', () => {
+  beforeEach(() => {
+    fetchCalls.length = 0;
+  });
+
+  async function settleWithin(promise: Promise<unknown>, ms: number): Promise<unknown> {
+    return Promise.race([promise.then(() => 'resolved', (err) => err), new Promise((r) => setTimeout(() => r('timeout'), ms))]);
+  }
+
+  it('rejects when cancelled during the cache scan (pool must not spin)', async () => {
+    const { DownloadManager } = await import('@/lib/download-manager');
+    const mgr = new DownloadManager({ concurrentDownloads: 2, useCache: true });
+    (mgr as any).storage.isInitialized = () => true;
+    // The user cancels while the cache scan runs
+    mgr.getCachedTiles = async () => {
+      mgr.cancelDownload();
+      return new Set<string>();
+    };
+
+    const result = await settleWithin(mgr.startDownload(['N10E000', 'N10E001', 'N10E002']), 2000);
+    expect((result as Error).name).toBe('AbortError');
+    expect(fetchCalls).toEqual([]);
+  });
+
+  it('rejects when cancelled while storage is starting', async () => {
+    const { DownloadManager } = await import('@/lib/download-manager');
+    const mgr = new DownloadManager({ concurrentDownloads: 2, useCache: false });
+
+    const promise = mgr.startDownload(['N10E000', 'N10E001']);
+    mgr.cancelDownload(); // before the first await in startDownload finishes
+
+    const result = await settleWithin(promise, 2000);
+    expect((result as Error).name).toBe('AbortError');
+    expect(fetchCalls).toEqual([]);
+  });
+});
