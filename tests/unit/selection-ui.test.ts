@@ -111,6 +111,18 @@ describe('SelectionUI (Leaflet)', () => {
     expect(container.querySelector('.selection-box')).toBeNull();
   });
 
+  it('captures the pointer on the map container, not on a tile image', () => {
+    const capture = vi.fn();
+    (container as any).setPointerCapture = capture;
+    ui.startAreaSelection();
+    // The press lands on a map tile image inside the container
+    const tile = document.createElement('img');
+    (tile as any).setPointerCapture = vi.fn();
+    container.appendChild(tile);
+    tile.dispatchEvent(pointer('pointerdown', 0, 0, { pointerId: 7 }));
+    expect(capture).toHaveBeenCalledWith(7);
+  });
+
   it('ignores move and up events from a second finger while drawing', () => {
     ui.startAreaSelection();
     container.dispatchEvent(pointer('pointerdown', 0, 0, { pointerId: 1 }));

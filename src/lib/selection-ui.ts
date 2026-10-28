@@ -121,7 +121,8 @@ export class SelectionUI {
     this.isDrawing = true;
     this.activePointerId = e.pointerId;
     this.startPoint = this.containerPoint(e);
-    (e.target as Element | null)?.setPointerCapture?.(e.pointerId);
+    // Capture on the container: the target is often a tile <img> that a zoom can replace
+    this.map.getContainer().setPointerCapture?.(e.pointerId);
 
     // Create selection box element
     this.removeBox();

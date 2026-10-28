@@ -34,7 +34,7 @@ export function showZoomMessage(): void {
       <path d="m21 21-4.35-4.35"></path>
       <path d="M11 8v6M8 11h6"></path>
     </svg>
-    <span>Zoom in to select tiles (zoom level 5+)</span>
+    <span>Zoom in to see the tile grid and select tiles</span>
     <button onclick="this.parentElement.remove()">×</button>
   `;
   document.body.appendChild(alert);

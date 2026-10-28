@@ -53,25 +53,6 @@ export async function registerServiceWorker(options: ServiceWorkerOptions = {}):
       setInterval(() => {
         registration.update();
       }, 60000); // Check every minute
-
-      // Handle updates
-      registration.addEventListener('updatefound', () => {
-        const newWorker = registration.installing;
-        if (newWorker) {
-          newWorker.addEventListener('statechange', () => {
-            if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
-              // New service worker available
-              notifications.info('Update available! Refresh to get the latest version.', {
-                persistent: true,
-                action: {
-                  label: 'Refresh',
-                  callback: () => window.location.reload(),
-                },
-              });
-            }
-          });
-        }
-      });
     } catch (error) {
       console.warn('Service Worker registration failed (non-fatal):', error);
     }
