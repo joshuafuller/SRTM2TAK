@@ -30,7 +30,8 @@ export default tseslint.config(
       },
     },
     linterOptions: {
-      reportUnusedDisableDirectives: true,
+      // 'error' matches the old --report-unused-disable-directives flag (fails the run)
+      reportUnusedDisableDirectives: 'error',
     },
     rules: {
       '@typescript-eslint/explicit-function-return-type': 'off',
