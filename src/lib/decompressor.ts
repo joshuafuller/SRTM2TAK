@@ -24,9 +24,9 @@ export class Decompressor {
       );
     } catch (error) {
       if (error instanceof Error) {
-        throw new Error(`Failed to decompress: ${error.message}. Data may be corrupt or not in gzip format.`);
+        throw new Error(`Failed to decompress: ${error.message}. Data may be corrupt or not in gzip format.`, { cause: error });
       }
-      throw new Error('Failed to decompress: Unknown error');
+      throw new Error('Failed to decompress: Unknown error', { cause: error });
     }
   }
   
@@ -154,9 +154,9 @@ export class Decompressor {
       );
     } catch (error) {
       if (error instanceof Error) {
-        throw new Error(`Failed to compress: ${error.message}`);
+        throw new Error(`Failed to compress: ${error.message}`, { cause: error });
       }
-      throw new Error('Failed to compress: Unknown error');
+      throw new Error('Failed to compress: Unknown error', { cause: error });
     }
   }
   

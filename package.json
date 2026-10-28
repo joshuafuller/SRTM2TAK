@@ -4,7 +4,7 @@
   "description": "SRTM elevation data downloader and packager for ATAK",
   "type": "module",
   "engines": {
-    "node": ">=22.12.0"
+    "node": ">=22.13.0"
   },
   "scripts": {
     "dev": "vite",
@@ -13,7 +13,7 @@
     "test": "vitest",
     "test:ui": "vitest --ui",
     "test:e2e": "playwright test",
-    "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 200",
+    "lint": "eslint . --max-warnings 200",
     "format": "prettier --write \"src/**/*.{ts,tsx,css,html}\"",
     "typecheck": "tsc --noEmit"
   },
@@ -26,23 +26,24 @@
     "workbox-routing": "^7.0.0"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "@playwright/test": "^1.61.0",
     "@testing-library/jest-dom": "^7.0.1",
     "@types/geojson": "^7946.0.16",
     "@types/node": "^24.3.3",
     "@types/pako": "^2.0.3",
-    "@typescript-eslint/eslint-plugin": "^8.70.1",
-    "@typescript-eslint/parser": "^8.70.1",
     "@vitest/coverage-v8": "^5.0.5",
     "@vitest/ui": "^5.0.5",
-    "eslint": "^8.56.0",
+    "eslint": "^10.13.0",
     "fake-indexeddb": "^6.2.2",
+    "globals": "^17.13.0",
     "jsdom": "^30.1.3",
     "jszip": "^3.10.1",
     "msw": "^3.0.3",
     "playwright": "^1.61.0",
     "prettier": "^3.2.4",
     "typescript": "^5.3.3",
+    "typescript-eslint": "^8.72.1",
     "vite": "^8.3.5",
     "vite-plugin-pwa": "^2.0.0",
     "vitest": "^5.0.5"
