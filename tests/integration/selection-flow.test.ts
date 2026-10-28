@@ -7,7 +7,7 @@ import {
 import {
   getTileFriendlyName,
   formatDownloadName
-} from '../../src/lib/tile-naming';
+} from '../../src/lib/smart-tile-naming';
 
 describe('Selection Flow Integration', () => {
   let store: SelectionStore;

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { AreaCalculator } from '@/lib/area-calculator';
+import { boundingBoxToTiles } from '@/lib/selection-system';
 import { TileFetcher } from '@/lib/tile-fetcher';
 import { Decompressor } from '@/lib/decompressor';
 import { StorageManager } from '@/lib/storage-manager';
@@ -33,7 +33,7 @@ describe('Download Pipeline Integration', () => {
       };
       
       // Step 2: Calculate tiles needed
-      const tiles = AreaCalculator.boundsToTiles(bounds);
+      const tiles = boundingBoxToTiles(bounds).map((tile) => tile.id);
       expect(tiles).toHaveLength(6); // 3x2 grid
       
       // Step 3: Check memory before starting

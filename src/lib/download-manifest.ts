@@ -69,24 +69,6 @@ export class DownloadManifest {
     }
   }
   
-  /**
-   * Resume a download session
-   */
-  static resume(sessionId: string): DownloadSession | null {
-    try {
-      const sessions = this.getAllSessions();
-      const session = sessions.find(s => s.id === sessionId);
-      
-      if (session && session.resumable && session.status !== 'completed') {
-        return session;
-      }
-      
-      return null;
-    } catch (error) {
-      console.error('Failed to resume download session:', error);
-      return null;
-    }
-  }
   
   /**
    * Get all saved sessions
@@ -103,59 +85,8 @@ export class DownloadManifest {
     return [];
   }
   
-  /**
-   * Get resumable sessions
-   */
-  static getResumableSessions(): DownloadSession[] {
-    return this.getAllSessions().filter(
-      s => s.resumable && s.status !== 'completed' && s.status !== 'failed'
-    );
-  }
   
-  /**
-   * Delete a session
-   */
-  static delete(sessionId: string): void {
-    try {
-      const sessions = this.getAllSessions();
-      const filtered = sessions.filter(s => s.id !== sessionId);
-      localStorage.setItem(this.STORAGE_KEY, JSON.stringify(filtered));
-
-      // Also delete from IndexedDB asynchronously
-      void (async (): Promise<void> => {
-        try {
-          const db = await this.getDB();
-          await db.delete('sessions', sessionId);
-        } catch (e) {
-          console.warn('Failed to delete session from IndexedDB:', e);
-        }
-      })();
-    } catch (error) {
-      console.error('Failed to delete download session:', error);
-    }
-  }
   
-  /**
-   * Clear all sessions
-   */
-  static clearAll(): void {
-    try {
-      localStorage.removeItem(this.STORAGE_KEY);
-      // Clear IDB asynchronously
-      void (async (): Promise<void> => {
-        try {
-          const db = await this.getDB();
-          const tx = db.transaction('sessions', 'readwrite');
-          await tx.store.clear();
-          await tx.done;
-        } catch (e) {
-          console.warn('Failed to clear sessions from IndexedDB:', e);
-        }
-      })();
-    } catch (error) {
-      console.error('Failed to clear download sessions:', error);
-    }
-  }
   
   /**
    * Create a new download session
@@ -287,34 +218,7 @@ export class DownloadManifest {
     return session;
   }
   
-  /**
-   * Mark tile as skipped (already cached)
-   */
-  static markTileSkipped(
-    session: DownloadSession,
-    tileId: string
-  ): DownloadSession {
-    if (!session.skipped.includes(tileId)) {
-      session.skipped.push(tileId);
-    }
-    
-    // Update progress
-    session.progress.current = session.completed.length + session.skipped.length;
-    
-    return session;
-  }
   
-  /**
-   * Get tiles that still need to be downloaded
-   */
-  static getRemainingTiles(session: DownloadSession): string[] {
-    const processed = new Set([
-      ...session.completed,
-      ...session.skipped,
-    ]);
-    
-    return session.tiles.filter(tile => !processed.has(tile));
-  }
   
   /**
    * Calculate session statistics
@@ -342,69 +246,6 @@ export class DownloadManifest {
     };
   }
   
-  /**
-   * Export session as JSON
-   */
-  static export(session: DownloadSession): string {
-    return JSON.stringify(session, null, 2);
-  }
   
-  /**
-   * Import session from JSON
-   */
-  static import(json: string): DownloadSession | null {
-    try {
-      const session = JSON.parse(json) as DownloadSession;
-      
-      // Validate required fields
-      if (session.id && session.tiles && Array.isArray(session.tiles)) {
-        return session;
-      }
-    } catch (error) {
-      console.error('Failed to import download session:', error);
-    }
-    
-    return null;
-  }
   
-  /**
-   * Clean up old sessions
-   */
-  static cleanup(daysOld: number = 7): number {
-    const cutoff = Date.now() - (daysOld * 24 * 60 * 60 * 1000);
-    const sessions = this.getAllSessions();
-    const filtered = sessions.filter(s => {
-      // Keep recent sessions
-      if (s.startTime > cutoff) return true;
-      
-      // Keep resumable sessions
-      if (s.resumable && s.status !== 'completed') return true;
-      
-      return false;
-    });
-    
-    const removed = sessions.length - filtered.length;
-    
-    if (removed > 0) {
-      localStorage.setItem(this.STORAGE_KEY, JSON.stringify(filtered));
-      // Also clean IndexedDB asynchronously
-      void (async (): Promise<void> => {
-        try {
-          const db = await this.getDB();
-          const tx = db.transaction('sessions', 'readwrite');
-          const store = tx.store;
-          // Simple approach: clear and reinsert filtered
-          await store.clear();
-          for (const s of filtered) {
-            await store.put(s);
-          }
-          await tx.done;
-        } catch (e) {
-          console.warn('Failed to cleanup sessions in IndexedDB:', e);
-        }
-      })();
-    }
-    
-    return removed;
-  }
 }

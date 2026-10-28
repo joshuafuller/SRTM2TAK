@@ -220,25 +220,6 @@ export class DownloadManager {
     }
   }
   
-  /**
-   * Resume a download session
-   */
-  async resumeDownload(sessionId: string): Promise<Blob> {
-    const session = DownloadManifest.resume(sessionId);
-    if (!session) {
-      throw new Error('Session not found or not resumable');
-    }
-    
-    this.currentSession = session;
-    this.currentSession.status = 'downloading';
-    DownloadManifest.save(this.currentSession);
-    
-    // Get remaining tiles
-    const remainingTiles = DownloadManifest.getRemainingTiles(session);
-    
-    // Continue download
-    return this.startDownload(remainingTiles, session.selection);
-  }
   
   /**
    * Cancel current download
@@ -267,26 +248,12 @@ export class DownloadManager {
   }
 
   /**
-   * True after cancelDownload() or pauseDownload() for the current download
+   * True after cancelDownload() for the current download
    */
   isCancelled(): boolean {
     return this.abortController?.signal.aborted ?? false;
   }
 
-  /**
-   * Pause current download
-   */
-  pauseDownload(): void {
-    this.abortController?.abort();
-    
-    if (this.currentSession) {
-      this.currentSession = DownloadManifest.updateStatus(
-        this.currentSession,
-        'paused'
-      );
-      DownloadManifest.save(this.currentSession);
-    }
-  }
   
   /**
    * Common concurrency pool manager for async iterators
@@ -655,17 +622,5 @@ export class DownloadManager {
     };
   }
   
-  /**
-   * Get resumable sessions
-   */
-  static getResumableSessions(): DownloadSession[] {
-    return DownloadManifest.getResumableSessions();
-  }
   
-  /**
-   * Clear download history
-   */
-  static clearHistory(): void {
-    DownloadManifest.clearAll();
-  }
 }
