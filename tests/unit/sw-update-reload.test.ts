@@ -79,4 +79,11 @@ describe('registerServiceWorker reloads once when a new version takes over', () 
     expect(reload).not.toHaveBeenCalled();
     expect(info).toHaveBeenCalledWith(expect.stringContaining('Update ready'), expect.anything());
   });
+
+  it('shows no second "update" toast from updatefound (controllerchange covers updates)', async () => {
+    const sw = await setup({});
+    const registration = await sw.register.mock.results[0].value;
+    const events = registration.addEventListener.mock.calls.map((call: unknown[]) => call[0]);
+    expect(events).not.toContain('updatefound');
+  });
 });

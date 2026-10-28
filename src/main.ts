@@ -17,6 +17,7 @@ import { showProgressOverlay, hideProgressOverlay, updateProgressDisplay } from 
 import { fixBrokenIcons } from './ui/icons';
 import { type AppSettings, saveSettings, loadSettings } from './app/settings';
 import { registerServiceWorker, setupOfflineDetection } from './app/pwa';
+import { MAP_ZOOM } from './app/map-zoom';
 
 // Application state
 interface AppState {
@@ -88,9 +89,9 @@ function initializeMap(): void {
 
   const map = L.map(mapElement, {
     center: [39.8283, -98.5795], // Center of USA [lat, lng]
-    zoom: 4,
-    minZoom: 2,
-    maxZoom: 10,
+    zoom: MAP_ZOOM.start,
+    minZoom: MAP_ZOOM.min,
+    maxZoom: MAP_ZOOM.max,
     zoomControl: false, // the app has its own zoom buttons
     preferCanvas: true, // one canvas for the many grid polygons
   });
@@ -165,7 +166,7 @@ function generateTileGridGeoJSON(): any {
   const zoom = state.map.getZoom();
 
   // Only show grid at higher zoom levels (best practice: provide user feedback)
-  if (zoom < 5) {
+  if (zoom < MAP_ZOOM.grid) {
     // Show helpful message to user
     showZoomMessage();
     return {
@@ -224,7 +225,7 @@ function generateTileGridGeoJSON(): any {
       });
 
       // Add label point if needed
-      if (state.settings.showLabels && zoom >= 7) {
+      if (state.settings.showLabels && zoom >= MAP_ZOOM.labels) {
         features.push({
           type: 'Feature',
           properties: {
