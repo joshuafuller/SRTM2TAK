@@ -36,11 +36,16 @@ export default defineConfig({
         { name: 'Mobile Chrome', use: { ...devices['Pixel 5'] } },
         { name: 'Mobile Safari', use: { ...devices['iPhone 12'] } },
       ]
-    : [
-        // Default: single fast project to avoid long installs/hangs locally.
-        // CI also uses only Chromium: GitHub runners have no GPU, so Firefox has no WebGL
-        { name: 'chromium', use: { ...devices['Desktop Chrome'] } },
-      ],
+    : process.env.CI
+      ? [
+          // The map needs no WebGL (Leaflet), so Firefox runs on GPU-less CI runners
+          { name: 'chromium', use: { ...devices['Desktop Chrome'] } },
+          { name: 'firefox', use: { ...devices['Desktop Firefox'] } },
+        ]
+      : [
+          // Default: single fast project to avoid long installs/hangs locally
+          { name: 'chromium', use: { ...devices['Desktop Chrome'] } },
+        ],
 
   webServer: {
     // Bind vite explicitly to IPv4 127.0.0.1: on CI runners `localhost` can resolve

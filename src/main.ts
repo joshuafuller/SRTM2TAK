@@ -992,6 +992,8 @@ async function startDownload(): Promise<void> {
   }
   drawTileGrid();
   
+  // Set when the manager already reported an error, so the catch below does not repeat it
+  let errorReported = false;
   // Create download manager. Its callbacks act only while it is the current,
   // not-cancelled download, so a cancelled run cannot touch a newer one.
   const manager: DownloadManager = new DownloadManager({
@@ -1012,6 +1014,7 @@ async function startDownload(): Promise<void> {
       if (isActiveDownload(manager)) handleDownloadComplete(blob, result.failedTiles);
     },
     onError: (error) => {
+      errorReported = true;
       if (isActiveDownload(manager)) handleDownloadError(error);
     },
   });
@@ -1059,7 +1062,8 @@ async function startDownload(): Promise<void> {
       return;
     }
     console.error('Download failed:', error);
-    handleDownloadError(error as Error);
+    // Errors from setup (before the manager's own try) reach only this catch
+    if (!errorReported && isActiveDownload(manager)) handleDownloadError(error as Error);
   }
 }
 

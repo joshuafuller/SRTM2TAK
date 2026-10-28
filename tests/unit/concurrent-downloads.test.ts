@@ -205,7 +205,6 @@ describe('Concurrent Downloads', () => {
  */
 function analyzeConcurrency(timeline: Array<{ tileId: string; event: 'start' | 'end'; time: number }>) {
   let maxConcurrent = 0;
-  let currentConcurrent = 0;
   const activeTiles = new Set<string>();
 
   // Sort timeline by time
@@ -214,11 +213,9 @@ function analyzeConcurrency(timeline: Array<{ tileId: string; event: 'start' | '
   for (const event of sortedEvents) {
     if (event.event === 'start') {
       activeTiles.add(event.tileId);
-      currentConcurrent = activeTiles.size;
-      maxConcurrent = Math.max(maxConcurrent, currentConcurrent);
+      maxConcurrent = Math.max(maxConcurrent, activeTiles.size);
     } else if (event.event === 'end') {
       activeTiles.delete(event.tileId);
-      currentConcurrent = activeTiles.size;
     }
   }
 

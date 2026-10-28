@@ -34,7 +34,7 @@ describe('Download Pipeline Integration', () => {
       
       // Step 2: Calculate tiles needed
       const tiles = boundingBoxToTiles(bounds).map((tile) => tile.id);
-      expect(tiles).toHaveLength(6); // 3x2 grid
+      expect(tiles).toHaveLength(9); // 3x3: boundingBoxToTiles includes the integer east/north column
       
       // Step 3: Check memory before starting
       const memoryOk = !memoryMonitor.checkPressure();
