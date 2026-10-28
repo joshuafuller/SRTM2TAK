@@ -130,3 +130,38 @@ describe('SelectionUI (Leaflet)', () => {
     expect(fit).not.toHaveBeenCalled();
   });
 });
+
+describe('SelectionUI tile overlay on repeated world copies', () => {
+  let container: HTMLDivElement;
+  let map: L.Map;
+  let store: SelectionStore;
+  let ui: SelectionUI;
+
+  beforeEach(() => {
+    container = document.createElement('div');
+    document.body.appendChild(container);
+    map = L.map(container, { center: [38.5, 254.5], zoom: 6 });
+    store = new SelectionStore();
+    ui = new SelectionUI({ map, selectionStore: store });
+  });
+
+  afterEach(() => {
+    map.remove();
+    container.remove();
+  });
+
+  it('draws tile highlights in the world copy where the box was drawn', () => {
+    // Pikes Peak drawn one world copy to the east (lng -105.5 + 360)
+    store.selectArea({ south: 38.1, north: 38.5, west: 254.5, east: 254.9 });
+    const bounds = (ui as any).tilesLayer.getBounds() as L.LatLngBounds;
+    expect(bounds.getWest()).toBe(254);
+    expect(bounds.getEast()).toBe(255);
+  });
+
+  it('keeps both sides of a selection across 180° next to each other', () => {
+    store.selectArea({ south: 0.2, north: 0.5, west: 179.5, east: 180.5 });
+    const bounds = (ui as any).tilesLayer.getBounds() as L.LatLngBounds;
+    expect(bounds.getWest()).toBe(179);
+    expect(bounds.getEast()).toBe(181);
+  });
+});

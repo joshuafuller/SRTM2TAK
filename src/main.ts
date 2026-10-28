@@ -9,7 +9,7 @@ import { DownloadManager } from './lib/download-manager';
 import { StorageManager } from './lib/storage-manager';
 import { notifications } from './lib/notification-manager';
 import { estimateFileSizes, formatBytes, largeDownloadLimit, latLonToTileId } from './lib/tile-utils';
-import { buildCachedGeoJSON } from './lib/cached-overlay';
+import { buildCachedGeoJSONForView } from './lib/cached-overlay';
 import { SelectionStore } from './lib/selection-system';
 import { SelectionUI } from './lib/selection-ui';
 import { showToast, showZoomMessage, hideZoomMessage } from './ui/notices';
@@ -278,6 +278,11 @@ function tileGridStyle(feature?: GeoJSON.Feature): L.PathOptions {
 function drawTileGrid(): void {
   const map = state.map;
   if (!map || !state.gridLayer || !state.labelLayer) return;
+  // Many callers redraw the grid; it must stay hidden while "Show grid" is off
+  if (!state.settings.showGrid) {
+    hideTileGrid();
+    return;
+  }
 
   const gridData = generateTileGridGeoJSON();
   const cells = gridData.features.filter((f: GeoJSON.Feature) => f.geometry.type === 'Polygon');
@@ -538,14 +543,14 @@ function viewportBounds(map: L.Map): { north: number; south: number; east: numbe
 function renderCachedTiles(): void {
   if (!state.map || !state.cachedLayer) return;
   state.cachedLayer.clearLayers();
-  state.cachedLayer.addData(buildCachedGeoJSON(state.cachedTiles, viewportBounds(state.map)));
+  state.cachedLayer.addData(buildCachedGeoJSONForView(state.cachedTiles, viewportBounds(state.map)));
 }
 
 /** Render selected tiles overlay (all zooms) */
 function renderSelectedTiles(): void {
   if (!state.map || !state.selectedLayer) return;
   state.selectedLayer.clearLayers();
-  state.selectedLayer.addData(buildCachedGeoJSON(state.selectedTiles, viewportBounds(state.map)));
+  state.selectedLayer.addData(buildCachedGeoJSONForView(state.selectedTiles, viewportBounds(state.map)));
 }
 
 /**

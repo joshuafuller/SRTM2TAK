@@ -201,7 +201,21 @@ export class SelectionUI {
 
     this.tilesLayer.clearLayers();
     if (state.requiredTiles.length > 0) {
-      this.tilesLayer.addData(createTileOverlay(state.requiredTiles, state.cachedTiles));
+      const overlay = createTileOverlay(state.requiredTiles, state.cachedTiles);
+      // Tile longitudes are canonical (-180..179) but the box can be on a repeated
+      // world copy or cross 180°: move each tile next to the box. Leaflet does
+      // not repeat vector layers across world copies.
+      const area = state.selectedArea;
+      if (area) {
+        const middle = (area.west + area.east) / 2;
+        for (const feature of overlay.features) {
+          const polygon = feature.geometry as GeoJSON.Polygon;
+          const ring = polygon.coordinates[0];
+          const shift = 360 * Math.round((middle - (ring[0][0] + 0.5)) / 360);
+          polygon.coordinates = [ring.map(([lng, lat]) => [lng + shift, lat])];
+        }
+      }
+      this.tilesLayer.addData(overlay);
     }
   }
 
