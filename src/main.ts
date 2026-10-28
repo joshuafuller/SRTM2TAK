@@ -1249,7 +1249,7 @@ function initialize(): void {
   }
   
   // Register service worker
-  registerServiceWorker();
+  registerServiceWorker({ isBusy: () => state.isDownloading });
   
   // Set up offline detection
   setupOfflineDetection();

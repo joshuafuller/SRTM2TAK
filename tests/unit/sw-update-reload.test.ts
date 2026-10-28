@@ -34,11 +34,11 @@ describe('registerServiceWorker reloads once when a new version takes over', () 
     if (realSw) Object.defineProperty(navigator, 'serviceWorker', realSw);
   });
 
-  async function setup(controller: object | null) {
+  async function setup(controller: object | null, isBusy: () => boolean = () => false) {
     const sw = fakeServiceWorker(controller);
     Object.defineProperty(navigator, 'serviceWorker', { configurable: true, value: sw });
     const { registerServiceWorker } = await import('@/app/pwa');
-    await registerServiceWorker();
+    await registerServiceWorker({ isBusy });
     return sw;
   }
 
@@ -53,5 +53,18 @@ describe('registerServiceWorker reloads once when a new version takes over', () 
     const sw = await setup(null);
     sw.dispatchEvent(new Event('controllerchange'));
     expect(reload).not.toHaveBeenCalled();
+  });
+
+  it('does not reload during a download; offers a Refresh button instead', async () => {
+    const { notifications } = await import('@/lib/notification-manager');
+    const info = vi.spyOn(notifications, 'info');
+    const sw = await setup({}, () => true);
+
+    sw.dispatchEvent(new Event('controllerchange'));
+
+    expect(reload).not.toHaveBeenCalled();
+    expect(info).toHaveBeenCalledWith(expect.stringContaining('Update ready'), expect.objectContaining({
+      action: expect.objectContaining({ label: 'Refresh' }),
+    }));
   });
 });

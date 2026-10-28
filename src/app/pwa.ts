@@ -7,8 +7,13 @@
 import { notifications } from '../lib/notification-manager';
 import { computeServiceWorkerUrl } from '../lib/sw';
 
+export interface ServiceWorkerOptions {
+  /** True while work runs that a reload would lose (a download builds its ZIP in memory) */
+  isBusy?: () => boolean;
+}
+
 /** Register the service worker in production builds and surface update prompts. */
-export async function registerServiceWorker(): Promise<void> {
+export async function registerServiceWorker(options: ServiceWorkerOptions = {}): Promise<void> {
   // Skip SW in dev to avoid 404s; only register in production builds
   const isDev = (import.meta as any)?.env?.DEV === true || (import.meta as any)?.env?.MODE === 'development';
   if ('serviceWorker' in navigator && !isDev) {
@@ -23,6 +28,14 @@ export async function registerServiceWorker(): Promise<void> {
       let reloading = false;
       navigator.serviceWorker.addEventListener('controllerchange', () => {
         if (!hadController || reloading) return;
+        // A reload during a download would throw away the ZIP being built: let the user choose
+        if (options.isBusy?.()) {
+          notifications.info('Update ready. Refresh after your download to get the latest version.', {
+            persistent: true,
+            action: { label: 'Refresh', callback: () => window.location.reload() },
+          });
+          return;
+        }
         reloading = true;
         window.location.reload();
       });
