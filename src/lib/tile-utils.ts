@@ -320,3 +320,11 @@ export function calculateBoundingBox(tileIds: string[]): {
     west: minLon,
   };
 }
+/**
+ * Tile count above which the app asks before downloading. The ZIP is built
+ * in memory, so phones, tablets and low-memory devices get a lower limit.
+ */
+export function largeDownloadLimit(device: { coarsePointer: boolean; deviceMemoryGb?: number }): number {
+  const lowMemory = device.deviceMemoryGb !== undefined && device.deviceMemoryGb <= 4;
+  return device.coarsePointer || lowMemory ? 30 : 200;
+}

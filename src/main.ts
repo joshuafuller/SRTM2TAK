@@ -9,7 +9,7 @@ import './styles/main.css';
 import { DownloadManager } from './lib/download-manager';
 import { StorageManager } from './lib/storage-manager';
 import { notifications } from './lib/notification-manager';
-import { estimateFileSizes, formatBytes, latLonToTileId } from './lib/tile-utils';
+import { estimateFileSizes, formatBytes, largeDownloadLimit, latLonToTileId } from './lib/tile-utils';
 import { buildCachedGeoJSON } from './lib/cached-overlay';
 import { SelectionStore } from './lib/selection-system';
 import { SelectionUI } from './lib/selection-ui';
@@ -1567,6 +1567,21 @@ async function startDownload(): Promise<void> {
   if (state.isDownloading) {
     notifications.warning('Download already in progress');
     return;
+  }
+
+  // The ZIP is built in memory: ask before a download that can exhaust it
+  const limit = largeDownloadLimit({
+    coarsePointer: window.matchMedia?.('(pointer: coarse)').matches ?? false,
+    deviceMemoryGb: (navigator as Navigator & { deviceMemory?: number }).deviceMemory,
+  });
+  if (selectionState.totalTiles > limit) {
+    const size = estimateFileSizes(selectionState.totalTiles).compressedFormatted;
+    const proceed = window.confirm(
+      `You selected ${selectionState.totalTiles} tiles (about ${size}). ` +
+      `The ZIP is built in memory, and a download this large can fail on this device. ` +
+      `Select a smaller area, or press OK to continue.`
+    );
+    if (!proceed) return;
   }
   
   // Get friendly name from selection store BEFORE starting download
