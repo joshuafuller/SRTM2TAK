@@ -1,426 +1,132 @@
 /**
- * Tests for SelectionUI to prevent regression of tile selection bugs
+ * SelectionUI on a real Leaflet map (jsdom): area selection by drag only
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import * as L from 'leaflet';
 import { SelectionUI } from '../../src/lib/selection-ui';
 import { SelectionStore } from '../../src/lib/selection-system';
 
-// Mock maplibre-gl
-vi.mock('maplibre-gl');
+function pointer(type: string, x: number, y: number, extra: Partial<PointerEventInit> = {}): PointerEvent {
+  return new PointerEvent(type, {
+    bubbles: true,
+    cancelable: true,
+    clientX: x,
+    clientY: y,
+    button: 0,
+    isPrimary: true,
+    pointerId: 1,
+    ...extra,
+  });
+}
 
-describe('SelectionUI', () => {
-  let map: any;
+describe('SelectionUI (Leaflet)', () => {
+  let container: HTMLDivElement;
+  let map: L.Map;
   let store: SelectionStore;
-  let selectionUI: SelectionUI;
-  let mapContainer: HTMLDivElement;
-  let canvas: HTMLCanvasElement;
+  let ui: SelectionUI;
 
   beforeEach(() => {
-    // Create mock DOM elements
-    mapContainer = document.createElement('div');
-    canvas = document.createElement('canvas');
-    mapContainer.appendChild(canvas);
-    document.body.appendChild(mapContainer);
-
-    // Create mock map
-    map = {
-      getCanvas: vi.fn(() => canvas),
-      getContainer: vi.fn(() => mapContainer),
-      addSource: vi.fn(),
-      addLayer: vi.fn(),
-      getSource: vi.fn(() => ({
-        setData: vi.fn()
-      })),
-      on: vi.fn(),
-      off: vi.fn(),
-      unproject: vi.fn((point: number[]) => ({
-        lng: point[0] / 10,
-        lat: point[1] / 10
-      })),
-      fitBounds: vi.fn(),
-      dragPan: {
-        enable: vi.fn(),
-        disable: vi.fn()
-      }
-    };
-
-    // Create store and UI
+    container = document.createElement('div');
+    document.body.appendChild(container);
+    map = L.map(container, { center: [38.5, -105.5], zoom: 6 });
     store = new SelectionStore();
-    selectionUI = new SelectionUI({
-      map,
-      selectionStore: store
-    });
+    ui = new SelectionUI({ map, selectionStore: store });
   });
 
   afterEach(() => {
-    document.body.removeChild(mapContainer);
-    vi.clearAllMocks();
+    map.remove();
+    container.remove();
   });
 
-  describe('Area Selection Mode', () => {
-    it('should enable area selection mode correctly', () => {
-      selectionUI.startAreaSelection();
+  function drag(from: [number, number], to: [number, number]): void {
+    container.dispatchEvent(pointer('pointerdown', ...from));
+    container.dispatchEvent(pointer('pointermove', (from[0] + to[0]) / 2, (from[1] + to[1]) / 2));
+    container.dispatchEvent(pointer('pointermove', ...to));
+    container.dispatchEvent(pointer('pointerup', ...to));
+  }
 
-      // Should change cursor to crosshair
-      expect(canvas.style.cursor).toBe('crosshair');
+  it('selection mode disables panning, blocks touch gestures, and shows a crosshair', () => {
+    ui.startAreaSelection();
+    expect(map.dragging.enabled()).toBe(false);
+    expect(container.style.touchAction).toBe('none');
+    expect(container.style.cursor).toBe('crosshair');
 
-      // Should disable map panning
-      expect(map.dragPan.disable).toHaveBeenCalled();
-
-      // Should disable touch gestures to prevent pull-to-refresh
-      expect(canvas.style.touchAction).toBe('none');
-
-      // Should bind mouse events
-      expect(map.on).toHaveBeenCalledWith('mousedown', expect.any(Function));
-      expect(map.on).toHaveBeenCalledWith('mousemove', expect.any(Function));
-      expect(map.on).toHaveBeenCalledWith('mouseup', expect.any(Function));
-
-      // Should bind touch events
-      expect(map.on).toHaveBeenCalledWith('touchstart', expect.any(Function));
-      expect(map.on).toHaveBeenCalledWith('touchmove', expect.any(Function));
-      expect(map.on).toHaveBeenCalledWith('touchend', expect.any(Function));
-    });
-
-    it('should disable area selection mode correctly', () => {
-      // First enable
-      selectionUI.startAreaSelection();
-
-      // Then disable
-      selectionUI.stopAreaSelection();
-
-      // Should reset cursor
-      expect(canvas.style.cursor).toBe('');
-
-      // Should re-enable touch gestures
-      expect(canvas.style.touchAction).toBe('');
-
-      // Should re-enable map panning
-      expect(map.dragPan.enable).toHaveBeenCalled();
-
-      // Should unbind mouse events
-      expect(map.off).toHaveBeenCalledWith('mousedown', expect.any(Function));
-      expect(map.off).toHaveBeenCalledWith('mousemove', expect.any(Function));
-      expect(map.off).toHaveBeenCalledWith('mouseup', expect.any(Function));
-
-      // Should unbind touch events
-      expect(map.off).toHaveBeenCalledWith('touchstart', expect.any(Function));
-      expect(map.off).toHaveBeenCalledWith('touchmove', expect.any(Function));
-      expect(map.off).toHaveBeenCalledWith('touchend', expect.any(Function));
-    });
+    ui.stopAreaSelection();
+    expect(map.dragging.enabled()).toBe(true);
+    expect(container.style.touchAction).toBe('');
+    expect(container.style.cursor).toBe('');
   });
 
-  describe('Selection Box Drawing', () => {
-    let mouseDownHandler: Function;
-    let mouseMoveHandler: Function;
-    let mouseUpHandler: Function;
+  it('a drag in selection mode selects the area under the box', () => {
+    ui.startAreaSelection();
+    drag([-100, -100], [100, 100]);
 
-    beforeEach(() => {
-      // Capture event handlers
-      map.on.mockImplementation((event: string, handler: Function) => {
-        if (event === 'mousedown' || event === 'touchstart') {
-          mouseDownHandler = handler;
-        } else if (event === 'mousemove' || event === 'touchmove') {
-          mouseMoveHandler = handler;
-        } else if (event === 'mouseup' || event === 'touchend') {
-          mouseUpHandler = handler;
-        }
-      });
-
-      selectionUI.startAreaSelection();
-    });
-
-    it('should not create selection for tiny movements (accidental clicks)', () => {
-      const selectAreaSpy = vi.spyOn(store, 'selectArea');
-
-      // Simulate tiny drag (less than minimum distance)
-      const event1 = {
-        point: { x: 100, y: 100 },
-        preventDefault: vi.fn(),
-        originalEvent: {
-          preventDefault: vi.fn(),
-          stopPropagation: vi.fn()
-        }
-      };
-
-      const event2 = {
-        point: { x: 102, y: 101 }, // Only 2-3 pixels movement
-        preventDefault: vi.fn(),
-        originalEvent: {
-          preventDefault: vi.fn()
-        }
-      };
-
-      mouseDownHandler(event1);
-      mouseMoveHandler(event2);
-      mouseUpHandler(event2);
-
-      // Should NOT create a selection for tiny movements
-      expect(selectAreaSpy).not.toHaveBeenCalled();
-    });
-
-    it('should create selection for valid drag operations', () => {
-      const selectAreaSpy = vi.spyOn(store, 'selectArea');
-
-      // Simulate proper drag
-      const event1 = {
-        point: { x: 100, y: 100 },
-        preventDefault: vi.fn(),
-        originalEvent: {
-          preventDefault: vi.fn(),
-          stopPropagation: vi.fn()
-        }
-      };
-
-      const event2 = {
-        point: { x: 150, y: 150 }, // 50 pixels movement
-        preventDefault: vi.fn(),
-        originalEvent: {
-          preventDefault: vi.fn()
-        }
-      };
-
-      const event3 = {
-        point: { x: 200, y: 200 }, // Final position
-        preventDefault: vi.fn()
-      };
-
-      mouseDownHandler(event1);
-      mouseMoveHandler(event2);
-      mouseUpHandler(event3);
-
-      // Should create a selection
-      expect(selectAreaSpy).toHaveBeenCalledWith(expect.objectContaining({
-        north: expect.any(Number),
-        south: expect.any(Number),
-        east: expect.any(Number),
-        west: expect.any(Number)
-      }));
-    });
-
-    it('should create and update selection box element during drag', () => {
-      const event1 = {
-        point: { x: 100, y: 100 },
-        preventDefault: vi.fn(),
-        originalEvent: {
-          preventDefault: vi.fn(),
-          stopPropagation: vi.fn()
-        }
-      };
-
-      const event2 = {
-        point: { x: 200, y: 150 },
-        preventDefault: vi.fn(),
-        originalEvent: {
-          preventDefault: vi.fn()
-        }
-      };
-
-      // Start drag
-      mouseDownHandler(event1);
-
-      // Should create selection box
-      const selectionBox = mapContainer.querySelector('.selection-box') as HTMLDivElement;
-      expect(selectionBox).toBeTruthy();
-      expect(selectionBox.style.position).toBe('absolute');
-
-      // Move mouse
-      mouseMoveHandler(event2);
-
-      // Should update box dimensions
-      expect(selectionBox.style.left).toBe('100px');
-      expect(selectionBox.style.top).toBe('100px');
-      expect(selectionBox.style.width).toBe('100px');
-      expect(selectionBox.style.height).toBe('50px');
-
-      // End drag
-      mouseUpHandler(event2);
-
-      // Should remove selection box
-      expect(mapContainer.querySelector('.selection-box')).toBeFalsy();
-    });
-
-    it('should prevent default touch behavior to avoid pull-to-refresh', () => {
-      const event = {
-        point: { x: 100, y: 100 },
-        preventDefault: vi.fn(),
-        originalEvent: {
-          preventDefault: vi.fn(),
-          stopPropagation: vi.fn()
-        }
-      };
-
-      mouseDownHandler(event);
-
-      // Should prevent default on the event
-      expect(event.preventDefault).toHaveBeenCalled();
-      expect(event.originalEvent.preventDefault).toHaveBeenCalled();
-      expect(event.originalEvent.stopPropagation).toHaveBeenCalled();
-    });
+    const state = store.getState();
+    expect(state.selectedArea).not.toBeNull();
+    const expectedSw = map.containerPointToLatLng(L.point(-100, 100));
+    const expectedNe = map.containerPointToLatLng(L.point(100, -100));
+    expect(state.selectedArea!.south).toBeCloseTo(expectedSw.lat, 6);
+    expect(state.selectedArea!.west).toBeCloseTo(expectedSw.lng, 6);
+    expect(state.selectedArea!.north).toBeCloseTo(expectedNe.lat, 6);
+    expect(state.selectedArea!.east).toBeCloseTo(expectedNe.lng, 6);
+    expect(state.totalTiles).toBeGreaterThan(0);
   });
 
-  describe('No Tile Click Selection', () => {
-    it('should not have any tile click handlers', () => {
-      // Ensure no click handlers are registered for tiles
-      const onCalls = map.on.mock.calls;
-
-      // Should not have any 'click' event handlers for tile selection
-      const hasClickHandler = onCalls.some(
-        ([event]: [string]) => event === 'click'
-      );
-
-      expect(hasClickHandler).toBe(false);
-    });
-
-    it('should only select tiles through area selection', () => {
-      const selectAreaSpy = vi.spyOn(store, 'selectArea');
-
-      // Enable selection mode
-      selectionUI.startAreaSelection();
-
-      // Capture handlers
-      let mouseDownHandler: Function;
-      let mouseUpHandler: Function;
-
-      map.on.mockImplementation((event: string, handler: Function) => {
-        if (event === 'mousedown' || event === 'touchstart') {
-          mouseDownHandler = handler;
-        } else if (event === 'mouseup' || event === 'touchend') {
-          mouseUpHandler = handler;
-        }
-      });
-
-      selectionUI.startAreaSelection();
-
-      // Simulate valid drag selection
-      const startEvent = {
-        point: { x: 100, y: 100 },
-        preventDefault: vi.fn(),
-        originalEvent: {
-          preventDefault: vi.fn(),
-          stopPropagation: vi.fn()
-        }
-      };
-
-      const endEvent = {
-        point: { x: 300, y: 300 },
-        preventDefault: vi.fn()
-      };
-
-      mouseDownHandler!(startEvent);
-      mouseUpHandler!(endEvent);
-
-      // Should call selectArea with bounds
-      expect(selectAreaSpy).toHaveBeenCalledWith(expect.objectContaining({
-        north: expect.any(Number),
-        south: expect.any(Number),
-        east: expect.any(Number),
-        west: expect.any(Number)
-      }));
-    });
+  it('ignores tiny movements (accidental clicks)', () => {
+    ui.startAreaSelection();
+    drag([0, 0], [3, 4]);
+    expect(store.getState().selectedArea).toBeNull();
   });
 
-  describe('Touch Screen Support', () => {
-    it('should handle touch events the same as mouse events', () => {
-      let touchStartHandler: Function;
-      let touchMoveHandler: Function;
-      let touchEndHandler: Function;
-
-      map.on.mockImplementation((event: string, handler: Function) => {
-        if (event === 'touchstart') {
-          touchStartHandler = handler;
-        } else if (event === 'touchmove') {
-          touchMoveHandler = handler;
-        } else if (event === 'touchend') {
-          touchEndHandler = handler;
-        }
-      });
-
-      selectionUI.startAreaSelection();
-
-      const selectAreaSpy = vi.spyOn(store, 'selectArea');
-
-      // Simulate touch drag
-      const touchStart = {
-        point: { x: 100, y: 100 },
-        preventDefault: vi.fn(),
-        originalEvent: {
-          preventDefault: vi.fn(),
-          stopPropagation: vi.fn()
-        }
-      };
-
-      const touchMove = {
-        point: { x: 200, y: 200 },
-        preventDefault: vi.fn(),
-        originalEvent: {
-          preventDefault: vi.fn()
-        }
-      };
-
-      const touchEnd = {
-        point: { x: 250, y: 250 },
-        preventDefault: vi.fn()
-      };
-
-      touchStartHandler!(touchStart);
-      touchMoveHandler!(touchMove);
-      touchEndHandler!(touchEnd);
-
-      // Should create selection from touch events
-      expect(selectAreaSpy).toHaveBeenCalledWith(expect.objectContaining({
-        north: expect.any(Number),
-        south: expect.any(Number),
-        east: expect.any(Number),
-        west: expect.any(Number)
-      }));
-    });
-
-    it('should disable pull-to-refresh during selection mode', () => {
-      selectionUI.startAreaSelection();
-
-      // Canvas should have touch-action: none
-      expect(canvas.style.touchAction).toBe('none');
-
-      selectionUI.stopAreaSelection();
-
-      // Should reset touch-action
-      expect(canvas.style.touchAction).toBe('');
-    });
+  it('does not select anything when selection mode is off', () => {
+    drag([-100, -100], [100, 100]);
+    expect(store.getState().selectedArea).toBeNull();
   });
 
-  describe('Clear Selection', () => {
-    it('should clear selection when clearSelection is called', () => {
-      const clearSpy = vi.spyOn(store, 'clearSelection');
+  it('shows a box while dragging and removes it on release', () => {
+    ui.startAreaSelection();
+    container.dispatchEvent(pointer('pointerdown', 0, 0));
+    container.dispatchEvent(pointer('pointermove', 50, 40));
+    const box = container.querySelector<HTMLDivElement>('.selection-box');
+    expect(box).not.toBeNull();
+    expect(box!.style.width).toBe('50px');
+    expect(box!.style.height).toBe('40px');
 
-      selectionUI.clearSelection();
-
-      expect(clearSpy).toHaveBeenCalled();
-    });
+    container.dispatchEvent(pointer('pointerup', 50, 40));
+    expect(container.querySelector('.selection-box')).toBeNull();
   });
 
-  describe('Fit to Selection', () => {
-    it('should fit map bounds to current selection', () => {
-      // Set a selection in the store
-      store.selectArea({
-        north: 40,
-        south: 30,
-        east: -70,
-        west: -80
-      });
+  it('prevents the browser default on pointerdown (no pull-to-refresh)', () => {
+    ui.startAreaSelection();
+    const down = pointer('pointerdown', 0, 0);
+    container.dispatchEvent(down);
+    expect(down.defaultPrevented).toBe(true);
+  });
 
-      selectionUI.fitToSelection();
+  it('ignores a second finger or a non-primary button', () => {
+    ui.startAreaSelection();
+    container.dispatchEvent(pointer('pointerdown', 0, 0, { isPrimary: false, pointerId: 2 }));
+    container.dispatchEvent(pointer('pointerdown', 0, 0, { button: 2 }));
+    expect(container.querySelector('.selection-box')).toBeNull();
+  });
 
-      expect(map.fitBounds).toHaveBeenCalledWith(
-        [[-80, 30], [-70, 40]],
-        { padding: 50, duration: 500 }
-      );
-    });
+  it('clearSelection empties the store', () => {
+    store.selectArea({ south: 38, north: 39, west: -106, east: -105 });
+    ui.clearSelection();
+    expect(store.getState().selectedArea).toBeNull();
+  });
 
-    it('should not fit bounds if no selection exists', () => {
-      selectionUI.fitToSelection();
+  it('fitToSelection fits the map to the selected area', () => {
+    const fit = vi.spyOn(map, 'fitBounds');
+    store.selectArea({ south: 38, north: 39, west: -106, east: -105 });
+    ui.fitToSelection();
+    expect(fit).toHaveBeenCalledWith([[38, -106], [39, -105]], expect.objectContaining({ padding: [50, 50] }));
+  });
 
-      expect(map.fitBounds).not.toHaveBeenCalled();
-    });
+  it('fitToSelection does nothing without a selection', () => {
+    const fit = vi.spyOn(map, 'fitBounds');
+    ui.fitToSelection();
+    expect(fit).not.toHaveBeenCalled();
   });
 });

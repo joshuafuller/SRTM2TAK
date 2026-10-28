@@ -58,10 +58,6 @@ export default defineConfig({
       '@': resolve(import.meta.dirname, './src')
     }
   },
-  worker: {
-    // MapLibre 6 starts its worker as a module worker
-    format: 'es'
-  },
   build: {
     outDir: 'dist',
     sourcemap: true,

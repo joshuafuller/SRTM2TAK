@@ -1,202 +1,126 @@
 /**
  * Area-Based Selection UI
- * 
- * Integrates the selection system with MapLibre GL
+ *
+ * Integrates the selection system with a Leaflet map. Leaflet draws with
+ * plain DOM and canvas, so no WebGL is needed.
  */
 
-import * as maplibregl from 'maplibre-gl';
+import * as L from 'leaflet';
 import { SelectionStore, SelectionState, BoundingBox, createSelectionOverlay, createTileOverlay } from './selection-system';
 
 export interface SelectionUIOptions {
-  map: maplibregl.Map;
+  map: L.Map;
   selectionStore: SelectionStore;
   onSelectionChange?: (state: SelectionState) => void;
 }
 
 export class SelectionUI {
-  private map: maplibregl.Map;
+  private map: L.Map;
   private store: SelectionStore;
   private isDrawing = false;
-  private startPoint: maplibregl.Point | null = null;
+  private startPoint: L.Point | null = null;
   private currentBox: HTMLDivElement | null = null;
-  
+  private areaLayer: L.GeoJSON;
+  private tilesLayer: L.GeoJSON;
+
   constructor(options: SelectionUIOptions) {
     this.map = options.map;
     this.store = options.selectionStore;
-    
+
     // Subscribe to store changes
     if (options.onSelectionChange) {
       this.store.subscribe(options.onSelectionChange);
     }
-    
-    this.setupMapSources();
-    this.setupMapLayers();
-    this.bindEvents();
-  }
-  
-  /**
-   * Setup map sources for selection visualization
-   */
-  private setupMapSources(): void {
-    // Source for selection area
-    this.map.addSource('selection-area', {
-      type: 'geojson',
-      data: {
-        type: 'FeatureCollection',
-        features: []
-      }
-    });
-    
-    // Source for tile overlay
-    this.map.addSource('selection-tiles', {
-      type: 'geojson',
-      data: {
-        type: 'FeatureCollection',
-        features: []
-      }
-    });
-  }
-  
-  /**
-   * Setup map layers for visualization
-   */
-  private setupMapLayers(): void {
-    // Tile overlay layer (underneath selection)
-    this.map.addLayer({
-      id: 'selection-tiles-fill',
-      type: 'fill',
-      source: 'selection-tiles',
-      paint: {
-        'fill-color': [
-          'case',
-          ['get', 'cached'],
-          '#4CAF50', // Green for cached
-          '#2196F3'  // Blue for new
-        ],
-        'fill-opacity': 0.3
-      }
-    });
-    
-    this.map.addLayer({
-      id: 'selection-tiles-outline',
-      type: 'line',
-      source: 'selection-tiles',
-      paint: {
-        'line-color': [
-          'case',
-          ['get', 'cached'],
-          '#4CAF50',
-          '#2196F3'
-        ],
-        'line-width': 2,
-        'line-opacity': 0.8
-      }
-    });
-    
-    // Selection area layer (on top)
-    this.map.addLayer({
-      id: 'selection-area-fill',
-      type: 'fill',
-      source: 'selection-area',
-      paint: {
-        'fill-color': '#FF9800',
-        'fill-opacity': 0.1
-      }
-    });
-    
-    this.map.addLayer({
-      id: 'selection-area-outline',
-      type: 'line',
-      source: 'selection-area',
-      paint: {
-        'line-color': '#FF9800',
-        'line-width': 3,
-        'line-dasharray': [2, 2]
-      }
-    });
-  }
-  
-  /**
-   * Bind map events for area selection
-   */
-  private bindEvents(): void {
+
+    // Tile overlay underneath the selection area outline
+    this.tilesLayer = L.geoJSON(undefined, {
+      interactive: false,
+      style: (feature) => {
+        const color = feature?.properties?.cached ? '#4CAF50' : '#2196F3';
+        return { color, weight: 2, opacity: 0.8, fillColor: color, fillOpacity: 0.3 };
+      },
+    }).addTo(this.map);
+
+    this.areaLayer = L.geoJSON(undefined, {
+      interactive: false,
+      style: { color: '#FF9800', weight: 3, dashArray: '6 6', fillColor: '#FF9800', fillOpacity: 0.1 },
+    }).addTo(this.map);
+
     // Store changes update visualization
-    this.store.subscribe(state => {
-      this.updateVisualization(state);
-    });
+    this.store.subscribe((state) => this.updateVisualization(state));
   }
-  
+
   /**
    * Enable area selection mode
    */
   public startAreaSelection(): void {
-    // Change cursor
-    this.map.getCanvas().style.cursor = 'crosshair';
-
-    // Disable map interactions
-    this.map.dragPan.disable();
-
+    const container = this.map.getContainer();
+    container.style.cursor = 'crosshair';
     // Prevent pull-to-refresh and other touch gestures
-    const canvas = this.map.getCanvas();
-    canvas.style.touchAction = 'none';
+    container.style.touchAction = 'none';
 
-    // Bind selection events (mouse and touch)
-    this.map.on('mousedown', this.onMouseDown);
-    this.map.on('mousemove', this.onMouseMove);
-    this.map.on('mouseup', this.onMouseUp);
+    // Disable map panning so a drag draws a box
+    this.map.dragging.disable();
 
-    // Add touch support
-    this.map.on('touchstart', this.onMouseDown);
-    this.map.on('touchmove', this.onMouseMove);
-    this.map.on('touchend', this.onMouseUp);
+    // Pointer events cover mouse, touch and pen
+    container.addEventListener('pointerdown', this.onPointerDown);
+    container.addEventListener('pointermove', this.onPointerMove);
+    container.addEventListener('pointerup', this.onPointerUp);
+    container.addEventListener('pointercancel', this.onPointerCancel);
   }
-  
+
   /**
    * Disable area selection mode
    */
   public stopAreaSelection(): void {
-    // Reset cursor
-    this.map.getCanvas().style.cursor = '';
+    const container = this.map.getContainer();
+    container.style.cursor = '';
+    container.style.touchAction = '';
 
-    // Re-enable touch gestures
-    const canvas = this.map.getCanvas();
-    canvas.style.touchAction = '';
+    this.map.dragging.enable();
 
-    // Re-enable map interactions
-    this.map.dragPan.enable();
+    container.removeEventListener('pointerdown', this.onPointerDown);
+    container.removeEventListener('pointermove', this.onPointerMove);
+    container.removeEventListener('pointerup', this.onPointerUp);
+    container.removeEventListener('pointercancel', this.onPointerCancel);
 
-    // Unbind selection events (mouse and touch)
-    this.map.off('mousedown', this.onMouseDown);
-    this.map.off('mousemove', this.onMouseMove);
-    this.map.off('mouseup', this.onMouseUp);
+    this.removeBox();
+    this.isDrawing = false;
+    this.startPoint = null;
+  }
 
-    this.map.off('touchstart', this.onMouseDown);
-    this.map.off('touchmove', this.onMouseMove);
-    this.map.off('touchend', this.onMouseUp);
-    
-    // Clean up any selection box
+  /**
+   * Pointer position relative to the map container
+   */
+  private containerPoint(e: PointerEvent): L.Point {
+    return this.map.mouseEventToContainerPoint(e);
+  }
+
+  private removeBox(): void {
     if (this.currentBox) {
       this.currentBox.remove();
       this.currentBox = null;
     }
   }
-  
-  /**
-   * Handle mouse down - start drawing
-   */
-  private onMouseDown = (e: maplibregl.MapMouseEvent | maplibregl.MapTouchEvent): void => {
 
-    // Prevent propagation and default browser behavior (pull-to-refresh, etc)
+  /**
+   * Pointer down - start drawing
+   */
+  private onPointerDown = (e: PointerEvent): void => {
+    // Only the primary button or a single touch starts a box
+    if (!e.isPrimary || e.button !== 0) return;
+    // Do not start a box on the map's own controls
+    if ((e.target as HTMLElement | null)?.closest?.('.leaflet-control')) return;
+
     e.preventDefault();
-    if (e.originalEvent) {
-      e.originalEvent.preventDefault();
-      e.originalEvent.stopPropagation();
-    }
+    e.stopPropagation();
 
     this.isDrawing = true;
-    this.startPoint = e.point;
-    
+    this.startPoint = this.containerPoint(e);
+    (e.target as Element | null)?.setPointerCapture?.(e.pointerId);
+
     // Create selection box element
+    this.removeBox();
     this.currentBox = document.createElement('div');
     this.currentBox.className = 'selection-box';
     this.currentBox.style.cssText = `
@@ -206,150 +130,99 @@ export class SelectionUI {
       pointer-events: none;
       z-index: 1000;
     `;
-    
     this.map.getContainer().appendChild(this.currentBox);
-  }
-  
-  /**
-   * Handle mouse move - update selection box
-   */
-  private onMouseMove = (e: maplibregl.MapMouseEvent | maplibregl.MapTouchEvent): void => {
-    if (!this.isDrawing || !this.startPoint || !this.currentBox) return;
+  };
 
-    // Prevent default touch behavior
-    if (e.originalEvent) {
-      e.originalEvent.preventDefault();
-    }
-    
-    const current = e.point;
+  /**
+   * Pointer move - update selection box
+   */
+  private onPointerMove = (e: PointerEvent): void => {
+    if (!this.isDrawing || !this.startPoint || !this.currentBox) return;
+    e.preventDefault();
+
+    const current = this.containerPoint(e);
     const minX = Math.min(this.startPoint.x, current.x);
     const maxX = Math.max(this.startPoint.x, current.x);
     const minY = Math.min(this.startPoint.y, current.y);
     const maxY = Math.max(this.startPoint.y, current.y);
-    
-    // Update box position and size
+
     this.currentBox.style.left = `${minX}px`;
     this.currentBox.style.top = `${minY}px`;
     this.currentBox.style.width = `${maxX - minX}px`;
     this.currentBox.style.height = `${maxY - minY}px`;
-  }
-  
-  /**
-   * Handle mouse up - finish selection
-   */
-  private onMouseUp = (e: maplibregl.MapMouseEvent | maplibregl.MapTouchEvent): void => {
+  };
 
+  private onPointerCancel = (): void => {
+    this.isDrawing = false;
+    this.startPoint = null;
+    this.removeBox();
+  };
+
+  /**
+   * Pointer up - finish selection
+   */
+  private onPointerUp = (e: PointerEvent): void => {
     if (!this.isDrawing || !this.startPoint) return;
 
     this.isDrawing = false;
+    this.removeBox();
 
-    // Clean up selection box
-    if (this.currentBox) {
-      this.currentBox.remove();
-      this.currentBox = null;
-    }
-
-    const endPoint = e.point;
+    const start = this.startPoint;
+    this.startPoint = null;
+    const end = this.containerPoint(e);
 
     // Require minimum drag distance to prevent accidental selections
-    const minDragDistance = 10; // pixels
-    const dragDistance = Math.sqrt(
-      Math.pow(endPoint.x - this.startPoint.x, 2) +
-      Math.pow(endPoint.y - this.startPoint.y, 2)
-    );
+    if (start.distanceTo(end) < 10) {
+      return;
+    }
 
-    if (dragDistance < minDragDistance) {
-      return;
-    }
-    
-    // Check if it's a meaningful selection (not just a click)
-    const dx = Math.abs(endPoint.x - this.startPoint.x);
-    const dy = Math.abs(endPoint.y - this.startPoint.y);
-    
-    if (dx < 5 && dy < 5) {
-      // Too small, ignore
-      this.startPoint = null;
-      return;
-    }
-    
     // Convert screen coordinates to geographic bounds
-    const sw = this.map.unproject([
-      Math.min(this.startPoint.x, endPoint.x),
-      Math.max(this.startPoint.y, endPoint.y)
-    ]);
-    
-    const ne = this.map.unproject([
-      Math.max(this.startPoint.x, endPoint.x),
-      Math.min(this.startPoint.y, endPoint.y)
-    ]);
-    
+    const sw = this.map.containerPointToLatLng(L.point(Math.min(start.x, end.x), Math.max(start.y, end.y)));
+    const ne = this.map.containerPointToLatLng(L.point(Math.max(start.x, end.x), Math.min(start.y, end.y)));
+
     const bounds: BoundingBox = {
       north: ne.lat,
       south: sw.lat,
       east: ne.lng,
-      west: sw.lng
+      west: sw.lng,
     };
-    
-    // Update selection
+
     this.store.selectArea(bounds);
-    
-    // Reset
-    this.startPoint = null;
-    this.isDrawing = false;
-  }
-  
+  };
+
   /**
    * Update map visualization based on selection state
    */
   private updateVisualization(state: SelectionState): void {
-    // Update selection area
+    this.areaLayer.clearLayers();
     if (state.selectedArea) {
-      const areaFeature = createSelectionOverlay(state.selectedArea);
-      (this.map.getSource('selection-area') as maplibregl.GeoJSONSource)
-        .setData({
-          type: 'FeatureCollection',
-          features: [areaFeature]
-        });
-    } else {
-      (this.map.getSource('selection-area') as maplibregl.GeoJSONSource)
-        .setData({
-          type: 'FeatureCollection',
-          features: []
-        });
+      this.areaLayer.addData(createSelectionOverlay(state.selectedArea));
     }
-    
-    // Update tile overlay
+
+    this.tilesLayer.clearLayers();
     if (state.requiredTiles.length > 0) {
-      const tileFeatures = createTileOverlay(state.requiredTiles, state.cachedTiles);
-      (this.map.getSource('selection-tiles') as maplibregl.GeoJSONSource)
-        .setData(tileFeatures);
-    } else {
-      (this.map.getSource('selection-tiles') as maplibregl.GeoJSONSource)
-        .setData({
-          type: 'FeatureCollection',
-          features: []
-        });
+      this.tilesLayer.addData(createTileOverlay(state.requiredTiles, state.cachedTiles));
     }
   }
-  
+
   /**
    * Clear the current selection
    */
   public clearSelection(): void {
     this.store.clearSelection();
   }
-  
+
   /**
    * Fit map view to current selection
    */
   public fitToSelection(): void {
     const state = this.store.getState();
     if (!state.selectedArea) return;
-    
+
     const bounds = state.selectedArea;
     this.map.fitBounds(
-      [[bounds.west, bounds.south], [bounds.east, bounds.north]],
-      { padding: 50, duration: 500 }
+      [[bounds.south, bounds.west], [bounds.north, bounds.east]],
+      { padding: [50, 50], animate: true, duration: 0.5 }
     );
   }
 }

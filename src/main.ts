@@ -2,9 +2,8 @@
  * SRTM2TAK Main Application Entry Point
  */
 
-import * as maplibregl from 'maplibre-gl';
-import maplibreWorkerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url';
-import 'maplibre-gl/dist/maplibre-gl.css';
+import * as L from 'leaflet';
+import 'leaflet/dist/leaflet.css';
 import './styles/main.css';
 import { DownloadManager } from './lib/download-manager';
 import { StorageManager } from './lib/storage-manager';
@@ -19,13 +18,9 @@ import { fixBrokenIcons } from './ui/icons';
 import { type AppSettings, saveSettings, loadSettings } from './app/settings';
 import { registerServiceWorker, setupOfflineDetection } from './app/pwa';
 
-// MapLibre 6 loads its worker from a URL next to its own module file. Once Vite
-// bundles MapLibre, that file is not emitted, so point MapLibre at the bundled worker.
-maplibregl.setWorkerUrl(maplibreWorkerUrl);
-
 // Application state
 interface AppState {
-  map: maplibregl.Map | null;
+  map: L.Map | null;
   selectedTiles: Set<string>;
   downloadingTiles: Set<string>;
   downloadedTiles: Set<string>; // tiles that completed successfully (including cache hits)
@@ -33,8 +28,11 @@ interface AppState {
   cachedTiles: Set<string>;     // tiles present in cache
   selectionBounds: { north: number; south: number; east: number; west: number } | null;
   isDrawing: boolean;
-  drawStartPoint: maplibregl.LngLat | null;
-  tileGridSourceAdded: boolean;
+  // Leaflet overlay layers (created once, refilled on each redraw)
+  gridLayer: L.GeoJSON | null;
+  labelLayer: L.LayerGroup | null;
+  cachedLayer: L.GeoJSON | null;
+  selectedLayer: L.GeoJSON | null;
   downloadManager: DownloadManager | null;
   isDownloading: boolean;
   downloadCancelled: boolean;  // Track if download was cancelled
@@ -53,8 +51,10 @@ const state: AppState = {
   cachedTiles: new Set(),
   selectionBounds: null,
   isDrawing: false,
-  drawStartPoint: null,
-  tileGridSourceAdded: false,
+  gridLayer: null,
+  labelLayer: null,
+  cachedLayer: null,
+  selectedLayer: null,
   downloadManager: null,
   isDownloading: false,
   downloadCancelled: false,
@@ -75,57 +75,8 @@ if (typeof window !== 'undefined') {
 }
 
 /**
- * Handle tile selection with proper feedback
- */
-function handleTileSelection(tileId: string): void {
-  console.trace('handleTileSelection called for:', tileId);
-  // Toggle tile selection - simplified for compatibility
-  if (state.selectedTiles.has(tileId)) {
-    state.selectedTiles.delete(tileId);
-  } else {
-    state.selectedTiles.add(tileId);
-  }
-
-  // Provide haptic feedback on mobile
-  if (navigator.vibrate) navigator.vibrate(10);
-  
-  // Visual feedback animation
-  if (state.map) {
-    // Flash the tile briefly
-    const originalOpacity = state.map.getPaintProperty('tile-grid-fill', 'fill-opacity');
-    state.map.setPaintProperty('tile-grid-fill', 'fill-opacity', 0.8);
-    setTimeout(() => {
-      if (state.map) {
-        state.map.setPaintProperty('tile-grid-fill', 'fill-opacity', originalOpacity);
-      }
-    }, 150);
-  }
-  
-  // Update UI
-  drawTileGrid();
-  renderSelectedTiles();
-  updateSelectionInfo();
-  renderAreasPanel();
-  
-  // Show toast notification
-  showToast(`Updated tile selection ${tileId}`);
-}
-
-/**
- * Show why the map cannot start (no WebGL2) in place of the blank map
- */
-function showMapError(mapElement: HTMLElement): void {
-  const message = document.createElement('div');
-  message.className = 'map-error';
-  message.setAttribute('role', 'alert');
-  message.textContent =
-    'The map cannot start because this browser does not have WebGL 2. ' +
-    'Turn on hardware acceleration in your browser settings, update your graphics driver, or use another browser.';
-  mapElement.appendChild(message);
-}
-
-/**
- * Initialize the MapLibre GL map with vector tiles
+ * Initialize the Leaflet map. Leaflet draws with DOM and canvas, so the map
+ * works without WebGL (MapLibre 6 needed WebGL2 and broke some Firefox setups).
  */
 function initializeMap(): void {
   // Get map container
@@ -135,82 +86,56 @@ function initializeMap(): void {
     return;
   }
 
-  // MapLibre 6 needs WebGL2. Without it the map stays blank, so tell the user why.
-  if (!document.createElement('canvas').getContext('webgl2')) {
-    showMapError(mapElement);
-    return;
-  }
-
-  // Create map with OpenStreetMap raster tiles (simpler, no vector tiles)
-  try {
-    state.map = new maplibregl.Map({
-      container: mapElement,
-      style: {
-        version: 8,
-        glyphs: 'https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf',
-        sources: {
-          'osm-raster': {
-            type: 'raster',
-            tiles: [
-              'https://a.tile.openstreetmap.org/{z}/{x}/{y}.png',
-              'https://b.tile.openstreetmap.org/{z}/{x}/{y}.png',
-              'https://c.tile.openstreetmap.org/{z}/{x}/{y}.png'
-            ],
-            tileSize: 256,
-            attribution: '© OpenStreetMap contributors'
-          }
-        },
-        layers: [
-          {
-            id: 'osm-raster-layer',
-            type: 'raster',
-            source: 'osm-raster',
-            minzoom: 0,
-            maxzoom: 19
-          }
-        ]
-      },
-      center: [-98.5795, 39.8283], // Center of USA [lng, lat]
-      zoom: 4,
-      minZoom: 2,
-      maxZoom: 10,
-    });
-  } catch (error) {
-    console.error('Map failed to start:', error);
-    showMapError(mapElement);
-    return;
-  }
-
-  // Wait for map to load
-  state.map.on('load', () => {
-    // Add SRTM coverage layer
-    addSRTMCoverage();
-    
-    // Initialize tile grid
-    if (state.settings.showGrid) {
-      drawTileGrid();
-    }
-
-    // Initialize selection UI
-    if (state.map) {
-      state.selectionUI = new SelectionUI({
-        map: state.map,
-      selectionStore: state.selectionStore,
-      onSelectionChange: (selectionState) => {
-        // Update UI based on selection state
-        updateSelectionInfo(selectionState);
-      }
-    });
-    }
-
-    // Load all cached tiles so they render as cached on the map
-    void loadAllCachedTiles();
-    // Initial render of cached tiles overlay
-    renderCachedTiles();
-
-    // Set up map event handlers
-    setupMapEvents();
+  const map = L.map(mapElement, {
+    center: [39.8283, -98.5795], // Center of USA [lat, lng]
+    zoom: 4,
+    minZoom: 2,
+    maxZoom: 10,
+    zoomControl: false, // the app has its own zoom buttons
+    preferCanvas: true, // one canvas for the many grid polygons
   });
+  state.map = map;
+
+  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 19,
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+  }).addTo(map);
+
+  // Layer order: coverage, cached, selected, grid, labels
+  addSRTMCoverage();
+  state.cachedLayer = L.geoJSON(undefined, {
+    interactive: false,
+    style: { color: '#2ecc71', weight: 1, opacity: 0.4, fillColor: '#2ecc71', fillOpacity: 0.2 },
+  }).addTo(map);
+  state.selectedLayer = L.geoJSON(undefined, {
+    interactive: false,
+    style: { color: '#2196F3', weight: 2, opacity: 0.6, fillColor: '#2196F3', fillOpacity: 0.25 },
+  }).addTo(map);
+  state.gridLayer = L.geoJSON(undefined, { interactive: false, style: tileGridStyle });
+  state.labelLayer = L.layerGroup();
+
+  // Initialize tile grid
+  if (state.settings.showGrid) {
+    drawTileGrid();
+  }
+
+  // Initialize selection UI
+  state.selectionUI = new SelectionUI({
+    map,
+    selectionStore: state.selectionStore,
+    onSelectionChange: (selectionState) => {
+      // Update UI based on selection state
+      updateSelectionInfo(selectionState);
+    }
+  });
+
+  // Load all cached tiles so they render as cached on the map
+  void loadAllCachedTiles();
+  // Initial render of cached tiles overlay
+  renderCachedTiles();
+
+  // Set up map event handlers
+  setupMapEvents();
 }
 
 /**
@@ -219,45 +144,15 @@ function initializeMap(): void {
 function addSRTMCoverage(): void {
   if (!state.map) return;
 
-  // Add SRTM coverage area (60°N to 56°S)
-  state.map.addSource('srtm-coverage', {
-    type: 'geojson',
-    data: {
-      type: 'Feature',
-      properties: {},
-      geometry: {
-        type: 'Polygon',
-        coordinates: [[
-          [-180, -56],
-          [180, -56],
-          [180, 60],
-          [-180, 60],
-          [-180, -56],
-        ]],
-      },
-    },
-  });
-
-  state.map.addLayer({
-    id: 'srtm-coverage-fill',
-    type: 'fill',
-    source: 'srtm-coverage',
-    paint: {
-      'fill-color': '#2196F3',
-      'fill-opacity': 0.05,
-    },
-  });
-
-  state.map.addLayer({
-    id: 'srtm-coverage-outline',
-    type: 'line',
-    source: 'srtm-coverage',
-    paint: {
-      'line-color': '#2196F3',
-      'line-width': 2,
-      'line-opacity': 0.3,
-    },
-  });
+  // SRTM coverage area (60°N to 56°S)
+  L.rectangle([[-56, -180], [60, 180]], {
+    interactive: false,
+    color: '#2196F3',
+    weight: 2,
+    opacity: 0.3,
+    fillColor: '#2196F3',
+    fillOpacity: 0.05,
+  }).addTo(state.map);
 }
 
 /**
@@ -351,127 +246,68 @@ function generateTileGridGeoJSON(): any {
   };
 }
 
+const STATUS_COLORS: Record<string, string> = {
+  downloading: '#f1c40f', // yellow
+  success: '#2ecc71',     // green
+  cached: '#2ecc71',      // green
+  failed: '#e74c3c',      // red
+  pending: '#2196F3',     // blue
+};
+
+/**
+ * Style of one grid cell by its download status
+ */
+function tileGridStyle(feature?: GeoJSON.Feature): L.PathOptions {
+  const status: string = feature?.properties?.status ?? 'idle';
+  const selected = Boolean(feature?.properties?.selected);
+  const color = STATUS_COLORS[status] ?? '#666';
+  const fillOpacity: Record<string, number> = { idle: 0, downloading: 0.6, success: 0.5, cached: 0.5 };
+  const lineOpacity: Record<string, number> = { downloading: 1, success: 0.9, cached: 0.9 };
+  return {
+    color,
+    weight: status === 'downloading' ? 3 : selected ? 2 : 1,
+    opacity: lineOpacity[status] ?? (selected ? 0.8 : 0.3),
+    fillColor: STATUS_COLORS[status] ?? '#2196F3',
+    fillOpacity: fillOpacity[status] ?? 0.35,
+  };
+}
+
 /**
  * Draw SRTM tile grid on the map
  */
 function drawTileGrid(): void {
-  if (!state.map) return;
+  const map = state.map;
+  if (!map || !state.gridLayer || !state.labelLayer) return;
 
   const gridData = generateTileGridGeoJSON();
+  const cells = gridData.features.filter((f: GeoJSON.Feature) => f.geometry.type === 'Polygon');
+  const labels = gridData.features.filter((f: GeoJSON.Feature) => f.geometry.type === 'Point');
 
-  if (!state.tileGridSourceAdded) {
-    // Add source and layers for the first time
-    state.map.addSource('tile-grid', {
-      type: 'geojson',
-      data: gridData,
-    });
+  state.gridLayer.clearLayers();
+  state.gridLayer.addData({ type: 'FeatureCollection', features: cells } as GeoJSON.FeatureCollection);
+  if (!map.hasLayer(state.gridLayer)) state.gridLayer.addTo(map);
 
-    // Add tile outline layer
-    state.map.addLayer({
-      id: 'tile-grid-lines',
-      type: 'line',
-      source: 'tile-grid',
-      paint: {
-        'line-color': [
-          'match',
-          ['get', 'status'],
-          'downloading', '#f1c40f',  // Yellow border for downloading
-          'success', '#2ecc71',       // Green border for completed
-          'cached', '#2ecc71',        // Green border for cached
-          'failed', '#e74c3c',        // Red border for failed
-          'pending', '#2196F3',       // Blue border for pending
-          '#666'                      // Gray for idle/unselected
-        ],
-        'line-width': [
-          'case',
-          ['==', ['get', 'status'], 'downloading'],
-          3,  // Thicker border for downloading tiles
-          ['get', 'selected'],
-          2,
-          1,
-        ],
-        'line-opacity': [
-          'case',
-          ['==', ['get', 'status'], 'downloading'],
-          1,  // Full opacity for downloading
-          ['==', ['get', 'status'], 'success'],
-          0.9,  // High opacity for completed
-          ['==', ['get', 'status'], 'cached'],
-          0.9,  // High opacity for cached
-          ['get', 'selected'],
-          0.8,
-          0.3,
-        ],
-      },
-    });
-
-    // Add tile fill layer
-    state.map.addLayer({
-      id: 'tile-grid-fill',
-      type: 'fill',
-      source: 'tile-grid',
-      // No filter: we use opacity to hide idle tiles
-      paint: {
-        // Color by download status: success=green, failed=red, pending=blue
-        'fill-color': [
-          'match',
-          ['get', 'status'],
-          'cached',  '#2ecc71',
-          'success', '#2ecc71',
-          'failed',  '#e74c3c',
-          'downloading', '#f1c40f',
-          /* pending/default */ '#2196F3'
-        ],
-        'fill-opacity': [
-          'case',
-          ['==', ['get', 'status'], 'idle'],
-          0,
-          ['==', ['get', 'status'], 'downloading'],
-          0.6,  // Make downloading tiles more visible
-          ['==', ['get', 'status'], 'success'],
-          0.5,   // Make completed tiles clearly visible
-          ['==', ['get', 'status'], 'cached'],
-          0.5,   // Make cached tiles clearly visible
-          0.35   // Default for pending/failed
-        ],
-      },
-    });
-
-    // Add label layer
-    state.map.addLayer({
-      id: 'tile-labels',
-      type: 'symbol',
-      source: 'tile-grid',
-      filter: ['has', 'label'],
-      layout: {
-        'text-field': ['get', 'label'],
-        'text-size': 11,
-        'text-anchor': 'center',
-      },
-      paint: {
-        'text-color': '#333',
-        'text-halo-color': '#fff',
-        'text-halo-width': 1,
-      },
-    });
-
-    state.tileGridSourceAdded = true;
-  } else {
-    // Update existing source
-    const source = state.map.getSource('tile-grid') as maplibregl.GeoJSONSource;
-    if (source) {
-      source.setData(gridData);
+  state.labelLayer.clearLayers();
+  if (state.settings.showLabels) {
+    for (const label of labels) {
+      const [lng, lat] = (label.geometry as GeoJSON.Point).coordinates;
+      L.marker([lat, lng], {
+        interactive: false,
+        keyboard: false,
+        icon: L.divIcon({ className: 'tile-label', html: String(label.properties?.label ?? ''), iconSize: undefined }),
+      }).addTo(state.labelLayer);
     }
   }
+  if (!map.hasLayer(state.labelLayer)) state.labelLayer.addTo(map);
+}
 
-  // Toggle label visibility
-  if (state.map.getLayer('tile-labels')) {
-    state.map.setLayoutProperty(
-      'tile-labels',
-      'visibility',
-      state.settings.showLabels ? 'visible' : 'none'
-    );
-  }
+/**
+ * Hide the grid and its labels
+ */
+function hideTileGrid(): void {
+  if (!state.map) return;
+  if (state.gridLayer) state.map.removeLayer(state.gridLayer);
+  if (state.labelLayer) state.map.removeLayer(state.labelLayer);
 }
 
 /**
@@ -485,15 +321,7 @@ function drawTileGrid(): void {
 function setupMapEvents(): void {
   if (!state.map) return;
 
-  // Redraw grid on zoom/move
-  state.map.on('zoomend', () => {
-    if (state.settings.showGrid) {
-      drawTileGrid();
-    }
-    renderCachedTiles();
-    renderSelectedTiles();
-  });
-
+  // Redraw grid on zoom/move (Leaflet fires moveend after a zoom too)
   state.map.on('moveend', () => {
     if (state.settings.showGrid) {
       drawTileGrid();
@@ -501,431 +329,6 @@ function setupMapEvents(): void {
      renderCachedTiles();
      renderSelectedTiles();
   });
-
-  // Drawing events are now handled by SelectionUI
-  // No need to register separate mouse/touch handlers
-
-  // NO INDIVIDUAL TILE CLICK HANDLERS
-  // Selection is ONLY through the draw selection box
-  // This prevents accidental selections
-
-  /*
-  // Handle tile clicks (mouse and touch)
-  let layerTileClickHandled = false;
-  let lastClickTime = 0;
-  let mouseDownTarget: string | null = null;
-  let mouseDownTime = 0;
-
-  // Track mousedown to ensure click is intentional
-  state.map.on('mousedown', 'tile-grid-lines', (e) => {
-    if (e.features && e.features[0]) {
-      mouseDownTarget = e.features[0].properties?.tileId || null;
-      mouseDownTime = Date.now();
-    }
-  });
-
-  state.map.on('mousedown', 'tile-grid-fill', (e) => {
-    if (e.features && e.features[0]) {
-      mouseDownTarget = e.features[0].properties?.tileId || null;
-      mouseDownTime = Date.now();
-    }
-  });
-
-  state.map.on('click', 'tile-grid-lines', (e) => {
-    if (!state.isDrawing && e.features && e.features[0]) {
-      e.originalEvent?.stopPropagation();
-      const tileId = e.features[0].properties?.tileId;
-      if (tileId) {
-        layerTileClickHandled = true;
-        handleTileSelection(tileId);
-        if (navigator.vibrate) navigator.vibrate(10);
-        drawTileGrid();
-        renderSelectedTiles();
-        updateSelectionInfo();
-        renderAreasPanel();
-      }
-    }
-  });
-
-  /* DISABLED - Selection is ONLY through draw box
-  // Also allow clicking filled polygons
-  state.map.on('click', 'tile-grid-fill', (e) => {
-    console.log('tile-grid-fill click event:', {
-      isTrusted: e.originalEvent?.isTrusted,
-      type: e.originalEvent?.type,
-      buttons: e.originalEvent?.buttons,
-      detail: e.originalEvent?.detail,
-      target: e.originalEvent?.target,
-      isDrawing: state.isDrawing,
-      mouseDownTarget,
-      timeSinceMouseDown: Date.now() - mouseDownTime
-    });
-
-    // Only accept real mouse clicks (detail > 0 means actual click, not programmatic)
-    if (!e.originalEvent || e.originalEvent.detail === 0) {
-      console.log('Rejecting programmatic/synthetic click on fill (detail=0)');
-      mouseDownTarget = null;
-      return;
-    }
-
-    // Ensure this is a real user click with mousedown first
-    if (!mouseDownTarget || Date.now() - mouseDownTime > 1000) {
-      console.log('Rejecting click without recent mousedown on fill');
-      mouseDownTarget = null;
-      return;
-    }
-
-    // Ensure this is a real user click, not a synthetic event
-    if (!e.originalEvent.isTrusted) {
-      console.log('Rejecting untrusted click event on fill');
-      mouseDownTarget = null;
-      return;
-    }
-
-    // Prevent rapid-fire events (debounce)
-    const now = Date.now();
-    if (now - lastClickTime < 100) {
-      console.log('Rejecting rapid-fire click on fill');
-      return;
-    }
-    lastClickTime = now;
-
-    if (!state.isDrawing && e.features && e.features[0]) {
-      e.originalEvent?.stopPropagation();
-      const tileId = e.features[0].properties?.tileId;
-      if (tileId) {
-        console.log('Selecting tile from fill:', tileId);
-        layerTileClickHandled = true;
-        handleTileSelection(tileId);
-        if (navigator.vibrate) navigator.vibrate(10);
-        drawTileGrid();
-        renderSelectedTiles();
-        updateSelectionInfo();
-        renderAreasPanel();
-        mouseDownTarget = null; // Reset after handling
-      }
-    }
-    mouseDownTarget = null; // Reset even if not handled
-  });
-
-  // Also handle touches on tiles
-  state.map.on('touchend', 'tile-grid-lines', (e) => {
-    // Ensure this is a real touch event
-    if (!e.originalEvent || !e.originalEvent.isTrusted) return;
-
-    if (!state.isDrawing && e.features && e.features[0]) {
-      e.preventDefault(); // Prevent triggering click as well
-      const tileId = e.features[0].properties?.tileId;
-      if (tileId) {
-        layerTileClickHandled = true;
-        handleTileSelection(tileId);
-        if (navigator.vibrate) navigator.vibrate(10);
-        drawTileGrid();
-        renderSelectedTiles();
-        updateSelectionInfo();
-        renderAreasPanel();
-      }
-    }
-  });
-  */
-
-  // Remove any stale fallback; selection is only via draw box now
-
-  /* DISABLED - No hover cursor since tiles aren't clickable
-  // Change cursor on hover (UX best practice: visual feedback)
-  state.map.on('mouseenter', 'tile-grid-fill', (e) => {
-    if (state.map) {
-      state.map.getCanvas().style.cursor = 'pointer';
-      // Add hover highlight
-      if (e.features && e.features[0]) {
-        state.map.setPaintProperty('tile-grid-fill', 'fill-opacity', [
-          'case',
-          ['==', ['get', 'tileId'], e.features[0].properties?.tileId],
-          0.5,
-          ['get', 'selected'], 0.4,
-          0.1
-        ]);
-      }
-    }
-  });
-
-  state.map.on('mouseleave', 'tile-grid-fill', () => {
-    if (state.map) {
-      state.map.getCanvas().style.cursor = '';
-      // Reset opacity
-      state.map.setPaintProperty('tile-grid-fill', 'fill-opacity', [
-        'case',
-        ['get', 'selected'], 0.4,
-        0.1
-      ]);
-    }
-  });
-  
-  // Also add hover for tile lines
-  state.map.on('mouseenter', 'tile-grid-lines', () => {
-    if (state.map) {
-      state.map.getCanvas().style.cursor = 'pointer';
-    }
-  });
-  
-  state.map.on('mouseleave', 'tile-grid-lines', () => {
-    if (state.map) {
-      state.map.getCanvas().style.cursor = '';
-    }
-  });
-  */
-}
-
-/**
- * Handle mouse down for rectangle drawing
- */
-function handleMouseDown(e: maplibregl.MapMouseEvent): void {
-  if (!state.isDrawing || !state.map) return;
-
-  // Prevent default drag behavior
-  e.preventDefault();
-
-  // Store start point
-  state.drawStartPoint = e.lngLat;
-
-  // Add selection box source if it doesn't exist
-  if (!state.map.getSource('selection-box')) {
-    state.map.addSource('selection-box', {
-      type: 'geojson',
-      data: {
-        type: 'Feature',
-        properties: {},
-        geometry: {
-          type: 'Polygon',
-          coordinates: [[]],
-        },
-      },
-    });
-
-    state.map.addLayer({
-      id: 'selection-box-fill',
-      type: 'fill',
-      source: 'selection-box',
-      paint: {
-        'fill-color': '#2196F3',
-        'fill-opacity': 0.2,
-      },
-    });
-
-    state.map.addLayer({
-      id: 'selection-box-outline',
-      type: 'line',
-      source: 'selection-box',
-      paint: {
-        'line-color': '#2196F3',
-        'line-width': 2,
-        'line-dasharray': [5, 5],
-      },
-    });
-  }
-}
-
-/**
- * Handle mouse move for rectangle drawing
- */
-function handleMouseMove(e: maplibregl.MapMouseEvent): void {
-  if (!state.isDrawing || !state.drawStartPoint || !state.map) return;
-
-  // Update selection box
-  const source = state.map.getSource('selection-box') as maplibregl.GeoJSONSource;
-  if (source) {
-    const start = state.drawStartPoint;
-    const current = e.lngLat;
-
-    source.setData({
-      type: 'Feature',
-      properties: {},
-      geometry: {
-        type: 'Polygon',
-        coordinates: [[
-          [start.lng, start.lat],
-          [current.lng, start.lat],
-          [current.lng, current.lat],
-          [start.lng, current.lat],
-          [start.lng, start.lat],
-        ]],
-      },
-    });
-  }
-}
-
-/**
- * Handle mouse up for rectangle drawing
- */
-function handleMouseUp(e: maplibregl.MapMouseEvent): void {
-  if (!state.isDrawing || !state.drawStartPoint || !state.map) return;
-
-  // Calculate bounds
-  const start = state.drawStartPoint;
-  const end = e.lngLat;
-
-  state.selectionBounds = {
-    south: Math.min(start.lat, end.lat),
-    north: Math.max(start.lat, end.lat),
-    west: Math.min(start.lng, end.lng),
-    east: Math.max(start.lng, end.lng),
-  };
-
-  // Calculate selected tiles
-  updateSelectedTiles();
-
-  // Clear drawing state
-  state.drawStartPoint = null;
-  state.isDrawing = false;
-
-  // Update UI
-  const drawButton = document.getElementById('draw-rectangle');
-  if (drawButton) {
-    drawButton.classList.remove('active');
-  }
-
-  updateSelectionInfo();
-  drawTileGrid();
-}
-
-/**
- * Handle touch start for rectangle drawing
- */
-function handleTouchStart(e: maplibregl.MapTouchEvent): void {
-  if (!state.isDrawing || !state.map) return;
-  
-  // Prevent default to avoid conflicts
-  e.preventDefault();
-  
-  // Get first touch point
-  if (e.points && e.points.length > 0) {
-    const point = e.points[0];
-    state.drawStartPoint = e.lngLat;
-    
-    // Add selection box source if it doesn't exist
-    if (!state.map.getSource('selection-box')) {
-      state.map.addSource('selection-box', {
-        type: 'geojson',
-        data: {
-          type: 'Feature',
-          properties: {},
-          geometry: {
-            type: 'Polygon',
-            coordinates: [[]],
-          },
-        },
-      });
-
-      state.map.addLayer({
-        id: 'selection-box-fill',
-        type: 'fill',
-        source: 'selection-box',
-        paint: {
-          'fill-color': '#2196F3',
-          'fill-opacity': 0.2,
-        },
-      });
-
-      state.map.addLayer({
-        id: 'selection-box-outline',
-        type: 'line',
-        source: 'selection-box',
-        paint: {
-          'line-color': '#2196F3',
-          'line-width': 2,
-          'line-dasharray': [5, 5],
-        },
-      });
-    }
-  }
-}
-
-/**
- * Handle touch move for rectangle drawing
- */
-function handleTouchMove(e: maplibregl.MapTouchEvent): void {
-  if (!state.isDrawing || !state.drawStartPoint || !state.map) return;
-  
-  // Prevent default to avoid scrolling
-  e.preventDefault();
-  
-  // Update selection box
-  const source = state.map.getSource('selection-box') as maplibregl.GeoJSONSource;
-  if (source && e.lngLat) {
-    const start = state.drawStartPoint;
-    const current = e.lngLat;
-
-    source.setData({
-      type: 'Feature',
-      properties: {},
-      geometry: {
-        type: 'Polygon',
-        coordinates: [[
-          [start.lng, start.lat],
-          [current.lng, start.lat],
-          [current.lng, current.lat],
-          [start.lng, current.lat],
-          [start.lng, start.lat],
-        ]],
-      },
-    });
-  }
-}
-
-/**
- * Handle touch end for rectangle drawing
- */
-function handleTouchEnd(e: maplibregl.MapTouchEvent): void {
-  if (!state.isDrawing || !state.drawStartPoint || !state.map) return;
-
-  // Calculate bounds
-  const start = state.drawStartPoint;
-  const end = e.lngLat;
-
-  state.selectionBounds = {
-    south: Math.min(start.lat, end.lat),
-    north: Math.max(start.lat, end.lat),
-    west: Math.min(start.lng, end.lng),
-    east: Math.max(start.lng, end.lng),
-  };
-
-  // Calculate selected tiles
-  updateSelectedTiles();
-
-  // Clear drawing state
-  state.drawStartPoint = null;
-  state.isDrawing = false;
-
-  // Update UI
-  const drawButton = document.getElementById('draw-rectangle');
-  if (drawButton) {
-    drawButton.classList.remove('active');
-  }
-
-  updateSelectionInfo();
-  drawTileGrid();
-}
-
-/**
- * Update selected tiles based on selection bounds
- */
-function updateSelectedTiles(): void {
-  if (!state.selectionBounds) return;
-  const south = Math.floor(Math.max(state.selectionBounds.south, -56));
-  const north = Math.ceil(Math.min(state.selectionBounds.north, 60));
-  const west = Math.floor(state.selectionBounds.west);
-  const east = Math.ceil(state.selectionBounds.east);
-  const tiles: string[] = [];
-  for (let lat = south; lat < north; lat++) {
-    for (let lon = west; lon < east; lon++) {
-      tiles.push(latLonToTileId(lat, lon));
-    }
-  }
-  // Legacy: just add tiles to selection
-  for (const tile of tiles) {
-    state.selectedTiles.add(tile);
-  }
-  // renderAreasPanel(); // Removed - using new selection system
 }
 
 /** Render Areas list in info panel */
@@ -1122,77 +525,27 @@ async function loadAllCachedTiles(): Promise<void> {
 }
 
 /**
+ * Viewport bounds of the map as plain numbers
+ */
+function viewportBounds(map: L.Map): { north: number; south: number; east: number; west: number } {
+  const b = map.getBounds();
+  return { north: b.getNorth(), south: b.getSouth(), east: b.getEast(), west: b.getWest() };
+}
+
+/**
  * Render cached tiles overlay for all zoom levels
  */
 function renderCachedTiles(): void {
-  if (!state.map) return;
-  const map = state.map;
-  const b = map.getBounds();
-  const data = buildCachedGeoJSON(state.cachedTiles, {
-    north: b.getNorth(), south: b.getSouth(), east: b.getEast(), west: b.getWest()
-  });
-  const source = map.getSource('cached-tiles');
-  if (!source) {
-    map.addSource('cached-tiles', { type: 'geojson', data });
-    // Fill under grid fill so selection colors can override
-    map.addLayer({
-      id: 'cached-tiles-fill',
-      type: 'fill',
-      source: 'cached-tiles',
-      paint: {
-        'fill-color': '#2ecc71',
-        'fill-opacity': 0.2,
-      },
-    }, 'tile-grid-fill');
-    // Optional outline for visibility
-    map.addLayer({
-      id: 'cached-tiles-outline',
-      type: 'line',
-      source: 'cached-tiles',
-      paint: {
-        'line-color': '#2ecc71',
-        'line-width': 1,
-        'line-opacity': 0.4,
-      },
-    }, 'tile-grid-fill');
-  } else {
-    (source as maplibregl.GeoJSONSource).setData(data);
-  }
+  if (!state.map || !state.cachedLayer) return;
+  state.cachedLayer.clearLayers();
+  state.cachedLayer.addData(buildCachedGeoJSON(state.cachedTiles, viewportBounds(state.map)));
 }
 
 /** Render selected tiles overlay (all zooms) */
 function renderSelectedTiles(): void {
-  if (!state.map) return;
-  const map = state.map;
-  const b = map.getBounds();
-  const data = buildCachedGeoJSON(state.selectedTiles, {
-    north: b.getNorth(), south: b.getSouth(), east: b.getEast(), west: b.getWest()
-  });
-  const source = map.getSource('selected-tiles');
-  if (!source) {
-    map.addSource('selected-tiles', { type: 'geojson', data });
-    map.addLayer({
-      id: 'selected-tiles-fill',
-      type: 'fill',
-      source: 'selected-tiles',
-      paint: {
-        'fill-color': '#2196F3',
-        'fill-opacity': 0.25,
-      },
-    }, 'tile-grid-fill');
-    map.addLayer({
-      id: 'selected-tiles-outline',
-      type: 'line',
-      source: 'selected-tiles',
-      paint: {
-        'line-color': '#2196F3',
-        'line-width': 2,
-        'line-opacity': 0.6,
-      },
-    }, 'tile-grid-fill');
-  } else {
-    (source as maplibregl.GeoJSONSource).setData(data);
-  }
+  if (!state.map || !state.selectedLayer) return;
+  state.selectedLayer.clearLayers();
+  state.selectedLayer.addData(buildCachedGeoJSON(state.selectedTiles, viewportBounds(state.map)));
 }
 
 /**
@@ -1234,21 +587,6 @@ function setupControls(): void {
       state.selectionBounds = null;
       state.selectionStore.clearSelection();
       
-      // Clear selection box
-      if (state.map) {
-        const source = state.map.getSource('selection-box') as maplibregl.GeoJSONSource;
-        if (source) {
-          source.setData({
-            type: 'Feature',
-            properties: {},
-            geometry: {
-              type: 'Polygon',
-              coordinates: [[]],
-            },
-          });
-        }
-      }
-      
       // Update UI
       updateSelectionInfo();
       drawTileGrid();
@@ -1280,9 +618,9 @@ function setupControls(): void {
         state.selectionUI.fitToSelection();
       } else if (state.map && state.selectionBounds) {
         state.map.fitBounds([
-          [state.selectionBounds.west, state.selectionBounds.south],
-          [state.selectionBounds.east, state.selectionBounds.north],
-        ], { padding: 50 });
+          [state.selectionBounds.south, state.selectionBounds.west],
+          [state.selectionBounds.north, state.selectionBounds.east],
+        ], { padding: [50, 50] });
       }
     });
   }
@@ -1368,14 +706,14 @@ function setupControls(): void {
       // Selection mode no longer used
       setSegment(segModeTile, segModeBox, true);
       // Re-enable one-finger pan/drag in tile mode
-      state.map?.dragPan.enable();
+      state.map?.dragging.enable();
       notifications.info('Tile mode: tap tiles to add/remove');
     });
     segModeBox.addEventListener('click', () => {
       // Selection mode no longer used
       setSegment(segModeBox, segModeTile, true);
       // Disable one-finger drag for reliable drawing; two-finger pan still works
-      state.map?.dragPan.disable();
+      state.map?.dragging.disable();
       notifications.info('Box mode: drag to add/remove area');
     });
   }
@@ -1399,11 +737,8 @@ function setupControls(): void {
       saveSettings(state.settings);
       if (state.settings.showGrid) {
         drawTileGrid();
-      } else if (state.map) {
-        // Hide grid layers
-        state.map.setLayoutProperty('tile-grid-lines', 'visibility', 'none');
-        state.map.setLayoutProperty('tile-grid-fill', 'visibility', 'none');
-        state.map.setLayoutProperty('tile-labels', 'visibility', 'none');
+      } else {
+        hideTileGrid();
       }
     });
   }
