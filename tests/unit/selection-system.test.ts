@@ -120,6 +120,13 @@ describe('Selection System', () => {
       expect(tiles.map(t => t.id)).toEqual(['N38W106']);
     });
 
+    it('covers every longitude once for a box just under 360° wide', () => {
+      const tiles = boundingBoxToTiles({ north: 0.5, south: 0.2, east: 539.1, west: 179.6 });
+      const lons = tiles.map(t => t.lon);
+      expect(lons).toHaveLength(360);
+      expect(new Set(lons).size).toBe(360);
+    });
+
     it('covers every longitude once for a box wider than the world', () => {
       const tiles = boundingBoxToTiles({ north: 0.5, south: 0.2, east: 200, west: -200 });
       const lons = tiles.map(t => t.lon);

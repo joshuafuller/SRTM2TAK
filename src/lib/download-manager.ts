@@ -98,21 +98,26 @@ export class DownloadManager {
       throw new Error(`Too many tiles requested (${tileIds.length}). Maximum allowed: ${MAX_TILES}`);
     }
 
+    // Create the abort controller first, so a cancel during the setup below counts
+    this.abortController = new AbortController();
+    const signal = this.abortController.signal;
+    const throwIfCancelled = (): void => {
+      if (signal.aborted) throw new DOMException('Download cancelled', 'AbortError');
+    };
+
     // Ensure storage is initialized
     try {
       await this.initStorage();
     } catch (error) {
       console.warn('Storage init failed, continuing without cache:', error);
     }
+    throwIfCancelled();
 
     // Check memory before starting
     const memStatus = this.monitor.getMemoryStatus();
     if (memStatus.level === 'critical') {
       throw new Error('Insufficient memory to start download');
     }
-    
-    // Create abort controller
-    this.abortController = new AbortController();
     
     // Create download session
     if (selection) {
@@ -145,6 +150,7 @@ export class DownloadManager {
       if (this.options.useCache !== false && this.storage.isInitialized()) {
         // Determine cached and remaining in one pass (preserving original order)
         const cachedSet = await this.getCachedTiles(tileIds);
+        throwIfCancelled();
         const cachedOrder = tileIds.filter(id => cachedSet.has(id));
         const remaining = tileIds.filter(id => !cachedSet.has(id));
 
@@ -297,6 +303,10 @@ export class DownloadManager {
         });
       inFlight.add(promiseRef);
     };
+
+    // A cancel before the pool starts must throw here: launchNext() does
+    // nothing once aborted, so the fill loop below would never end
+    throwIfAborted();
 
     // Fill initial pool
     while (inFlight.size < concurrency && index < items.length) {

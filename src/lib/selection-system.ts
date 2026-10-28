@@ -60,7 +60,8 @@ function tileLongitudes(west: number, east: number): number[] {
   }
 
   const first = Math.floor(wrapLongitude(west));
-  const count = Math.floor(wrapLongitude(west) + span) - first + 1;
+  // A span just under 360° can touch the first column twice: never more than 360
+  const count = Math.min(360, Math.floor(wrapLongitude(west) + span) - first + 1);
   return Array.from({ length: count }, (_, i) => wrapLongitude(first + i));
 }
 
