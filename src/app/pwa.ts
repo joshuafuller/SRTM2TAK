@@ -8,9 +8,13 @@ import { notifications } from '../lib/notification-manager';
 import { computeServiceWorkerUrl } from '../lib/sw';
 
 export interface ServiceWorkerOptions {
-  /** True while work runs that a reload would lose (a download builds its ZIP in memory) */
+  /** True while the user has work a reload would lose (a selection, or a download building its ZIP) */
   isBusy?: () => boolean;
 }
+
+// A new version found this soon after the page opened came from the visit's first
+// update check, before the user did anything: reload to it. Later, ask instead.
+const AUTO_RELOAD_WINDOW_MS = 15_000;
 
 /** Register the service worker in production builds and surface update prompts. */
 export async function registerServiceWorker(options: ServiceWorkerOptions = {}): Promise<void> {
@@ -25,12 +29,14 @@ export async function registerServiceWorker(options: ServiceWorkerOptions = {}):
       // files. Reload once so the user sees the new version without a second reload.
       // Skip the first install: there was no older version to replace.
       const hadController = Boolean(navigator.serviceWorker.controller);
+      const startedAt = Date.now();
       let reloading = false;
       navigator.serviceWorker.addEventListener('controllerchange', () => {
         if (!hadController || reloading) return;
-        // A reload during a download would throw away the ZIP being built: let the user choose
-        if (options.isBusy?.()) {
-          notifications.info('Update ready. Refresh after your download to get the latest version.', {
+        // Later in the session, or with a selection or download in progress, a reload
+        // would lose the user's work: let the user choose when to refresh
+        if (Date.now() - startedAt > AUTO_RELOAD_WINDOW_MS || options.isBusy?.()) {
+          notifications.info('Update ready. Refresh to get the latest version.', {
             persistent: true,
             action: { label: 'Refresh', callback: () => window.location.reload() },
           });

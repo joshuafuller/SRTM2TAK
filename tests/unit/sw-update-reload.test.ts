@@ -67,4 +67,16 @@ describe('registerServiceWorker reloads once when a new version takes over', () 
       action: expect.objectContaining({ label: 'Refresh' }),
     }));
   });
+
+  it('does not reload later in the session; offers Refresh instead', async () => {
+    const { notifications } = await import('@/lib/notification-manager');
+    const info = vi.spyOn(notifications, 'info');
+    const sw = await setup({});
+
+    vi.advanceTimersByTime(60_000); // the periodic update check found the new version
+    sw.dispatchEvent(new Event('controllerchange'));
+
+    expect(reload).not.toHaveBeenCalled();
+    expect(info).toHaveBeenCalledWith(expect.stringContaining('Update ready'), expect.anything());
+  });
 });
