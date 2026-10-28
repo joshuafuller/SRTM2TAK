@@ -19,6 +19,8 @@ export class SelectionUI {
   private store: SelectionStore;
   private isDrawing = false;
   private startPoint: L.Point | null = null;
+  // Only the pointer (finger, mouse, pen) that started the box can change or end it
+  private activePointerId: number | null = null;
   private currentBox: HTMLDivElement | null = null;
   private areaLayer: L.GeoJSON;
   private tilesLayer: L.GeoJSON;
@@ -87,6 +89,7 @@ export class SelectionUI {
     this.removeBox();
     this.isDrawing = false;
     this.startPoint = null;
+    this.activePointerId = null;
   }
 
   /**
@@ -116,6 +119,7 @@ export class SelectionUI {
     e.stopPropagation();
 
     this.isDrawing = true;
+    this.activePointerId = e.pointerId;
     this.startPoint = this.containerPoint(e);
     (e.target as Element | null)?.setPointerCapture?.(e.pointerId);
 
@@ -138,6 +142,7 @@ export class SelectionUI {
    */
   private onPointerMove = (e: PointerEvent): void => {
     if (!this.isDrawing || !this.startPoint || !this.currentBox) return;
+    if (e.pointerId !== this.activePointerId) return;
     e.preventDefault();
 
     const current = this.containerPoint(e);
@@ -152,7 +157,9 @@ export class SelectionUI {
     this.currentBox.style.height = `${maxY - minY}px`;
   };
 
-  private onPointerCancel = (): void => {
+  private onPointerCancel = (e: PointerEvent): void => {
+    if (e.pointerId !== this.activePointerId) return;
+    this.activePointerId = null;
     this.isDrawing = false;
     this.startPoint = null;
     this.removeBox();
@@ -163,8 +170,10 @@ export class SelectionUI {
    */
   private onPointerUp = (e: PointerEvent): void => {
     if (!this.isDrawing || !this.startPoint) return;
+    if (e.pointerId !== this.activePointerId) return;
 
     this.isDrawing = false;
+    this.activePointerId = null;
     this.removeBox();
 
     const start = this.startPoint;

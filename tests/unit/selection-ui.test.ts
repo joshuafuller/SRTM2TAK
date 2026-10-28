@@ -111,6 +111,23 @@ describe('SelectionUI (Leaflet)', () => {
     expect(container.querySelector('.selection-box')).toBeNull();
   });
 
+  it('ignores move and up events from a second finger while drawing', () => {
+    ui.startAreaSelection();
+    container.dispatchEvent(pointer('pointerdown', 0, 0, { pointerId: 1 }));
+    container.dispatchEvent(pointer('pointermove', 60, 60, { pointerId: 1 }));
+    // A second finger touches, moves and lifts first
+    container.dispatchEvent(pointer('pointermove', 300, 300, { pointerId: 2, isPrimary: false }));
+    container.dispatchEvent(pointer('pointerup', 300, 300, { pointerId: 2, isPrimary: false }));
+    const box = container.querySelector<HTMLDivElement>('.selection-box');
+    expect(box).not.toBeNull();
+    expect(box!.style.width).toBe('60px');
+    expect(store.getState().selectedArea).toBeNull();
+
+    // The first finger ends the box
+    container.dispatchEvent(pointer('pointerup', 60, 60, { pointerId: 1 }));
+    expect(store.getState().selectedArea).not.toBeNull();
+  });
+
   it('clearSelection empties the store', () => {
     store.selectArea({ south: 38, north: 39, west: -106, east: -105 });
     ui.clearSelection();
