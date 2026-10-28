@@ -33,6 +33,12 @@ const PIKES_PEAK_AREA_BOUNDS: BoundingBox = {
 
 const USE_REAL_S3 = process.env.TEST_REAL_S3 === 'true';
 
+// 1x1 transparent PNG
+const BLANK_PNG = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=',
+  'base64'
+);
+
 function s3ErrorXml(folder: string, filename: string): string {
   return `<?xml version="1.0" encoding="UTF-8"?>
 <Error>
@@ -110,6 +116,11 @@ export const test = base.extend({
     if (!USE_REAL_S3) {
       await page.route('**/elevation-tiles-prod/**', fulfillMockS3Route);
     }
+    // Base-map tiles come from live OpenStreetMap servers: serve a blank tile so
+    // tests do not depend on (or log errors from) a third-party network
+    await page.route(/tile\.openstreetmap\.org\//, (route) =>
+      route.fulfill({ status: 200, contentType: 'image/png', body: BLANK_PNG, headers: { 'Access-Control-Allow-Origin': '*' } })
+    );
 
     await use(page);
   },
