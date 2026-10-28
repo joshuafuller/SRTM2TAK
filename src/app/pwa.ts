@@ -15,6 +15,18 @@ export async function registerServiceWorker(): Promise<void> {
     try {
       const base = (import.meta as any)?.env?.BASE_URL ?? '/';
       const swUrl = computeServiceWorkerUrl(base);
+      // The service worker (autoUpdate: skipWaiting + clientsClaim) takes over as
+      // soon as a new version is installed, but this page still runs the old
+      // files. Reload once so the user sees the new version without a second reload.
+      // Skip the first install: there was no older version to replace.
+      const hadController = Boolean(navigator.serviceWorker.controller);
+      let reloading = false;
+      navigator.serviceWorker.addEventListener('controllerchange', () => {
+        if (!hadController || reloading) return;
+        reloading = true;
+        window.location.reload();
+      });
+
       const registration = await navigator.serviceWorker.register(swUrl);
       console.log('Service Worker registered:', registration.scope);
 
